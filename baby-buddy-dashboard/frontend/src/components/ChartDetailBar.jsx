@@ -1,10 +1,19 @@
 import { t as translate } from "../locales";
 
-const resolvedActionLabel =
-  actionLabel || translate("common.viewEntries");
-
-export default function ChartDetailBar({ label, value, unit, color, onViewEntries, onDismiss, actionLabel = "View entries" }) {
+export default function ChartDetailBar({
+  label,
+  value,
+  unit,
+  color,
+  onViewEntries,
+  onDismiss,
+  actionLabel,
+}) {
   if (!label) return null;
+
+  const resolvedActionLabel =
+    actionLabel || translate("common.viewEntries");
+
   return (
     <div
       style={{
@@ -24,6 +33,7 @@ export default function ChartDetailBar({ label, value, unit, color, onViewEntrie
         {" — "}
         {value} {unit}
       </span>
+
       <div style={{ display: "flex", gap: 6 }}>
         <button
           onClick={onViewEntries}
@@ -39,8 +49,9 @@ export default function ChartDetailBar({ label, value, unit, color, onViewEntrie
             whiteSpace: "nowrap",
           }}
         >
-          {actionLabel}
+          {resolvedActionLabel}
         </button>
+
         <button
           onClick={onDismiss}
           style={{
