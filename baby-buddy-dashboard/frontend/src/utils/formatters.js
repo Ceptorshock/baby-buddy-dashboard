@@ -1,3 +1,5 @@
+import { t as translate } from "../locales";
+
 export function getAge(birthDate) {
   const birth = new Date(birthDate);
   const now = new Date();
@@ -7,15 +9,26 @@ export function getAge(birthDate) {
   const days = now.getDate() - birth.getDate();
   if (days < 0) months--;
   const adjustedDays = days < 0 ? 30 + days : days;
-  if (months < 1)
-    return `${Math.max(0, Math.floor((now - birth) / 86400000))} days`;
-  if (months < 12)
-    return `${months}mo ${adjustedDays}d`;
+
+  if (months < 1) {
+    const count = Math.max(0, Math.floor((now - birth) / 86400000));
+    return translate("time.babyAgeDays", { count });
+  }
+  if (months < 12) {
+    return translate("time.babyAgeMonthsDays", {
+      months,
+      days: adjustedDays,
+    });
+  }
   const years = Math.floor(months / 12);
   const remainingMonths = months % 12;
-  if (remainingMonths === 0)
-    return `${years}y`;
-  return `${years}y ${remainingMonths}mo`;
+  if (remainingMonths === 0) {
+    return translate("time.babyAgeYears", { years });
+  }
+  return translate("time.babyAgeYearsMonths", {
+    years,
+    months: remainingMonths,
+  });
 }
 
 export function formatElapsed(seconds) {
@@ -27,16 +40,16 @@ export function formatElapsed(seconds) {
 export function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return translate("time.justNow");
+  if (mins < 60) return translate("time.minutesAgo", { count: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return translate("time.hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return translate("time.daysAgo", { count: days });
 }
 
 export function formatTime(dateStr) {
-  return new Date(dateStr).toLocaleTimeString([], {
+  return new Date(dateStr).toLocaleTimeString("es-ES", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -60,7 +73,7 @@ export function formatDuration(durationStr) {
 export function toFeedingTimeline(feedings, volumeUnit = "mL") {
   return feedings.map((f) => ({
     time: formatTime(f.end || f.start),
-    label: `${f.amount ? f.amount + " " + volumeUnit : ""} ${f.method || f.type || ""}`.trim() || "Feeding",
+    label: `${f.amount ? f.amount + " " + volumeUnit : ""} ${f.method || f.type || ""}`.trim() || translate("action.feeding"),
     detail: timeAgo(f.end || f.start),
     amount: f.amount || 0,
     type: f.type,
@@ -82,7 +95,7 @@ export function toDiaperTimeline(changes) {
 export function toSleepBlocks(sleepEntries) {
   return sleepEntries.map((s) => ({
     start: formatTime(s.start),
-    end: s.end ? formatTime(s.end) : "ongoing",
+    end: s.end ? formatTime(s.end) : translate("time.ongoing"),
     duration: parseDuration(s.duration),
     nap: s.nap,
     entry: s,
@@ -104,7 +117,7 @@ export function toGrowthSeries(entries, valueKey) {
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map((e) => ({
       timestamp: new Date(e.date).getTime(),
-      date: new Date(e.date).toLocaleDateString([], {
+      date: new Date(e.date).toLocaleDateString("es-ES", {
         month: "short",
         day: "numeric",
       }),
@@ -114,14 +127,16 @@ export function toGrowthSeries(entries, valueKey) {
 }
 
 export function formatGrowthTick(timestamp) {
-  return new Date(timestamp).toLocaleDateString([], {
+  return new Date(timestamp).toLocaleDateString("es-ES", {
     month: "short",
     day: "numeric",
   });
 }
 
 function getLast7Days() {
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  label: d
+  .toLocaleDateString("es-ES", { weekday: "short" })
+  .replace(".", ""),
   const result = [];
   const now = new Date();
   for (let i = 6; i >= 0; i--) {
@@ -179,7 +194,7 @@ function getLastNDays(n) {
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const month = d.toLocaleDateString([], { month: "short", day: "numeric" });
+    const month = d.toLocaleDateString("es-ES", { month: "short", day: "numeric" });
     result.push({
       label: month,
       dateStr: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
@@ -216,7 +231,7 @@ export function getEntriesForDate(entries, dateLabel, dateKey = "start") {
   const targetDate = dateLabel; // Already in format like "Jan 15"
   return entries.filter((e) => {
     const entryDate = new Date(e[dateKey] || e.time || e.date);
-    const formattedDate = entryDate.toLocaleDateString([], {
+    const formattedDate = entryDate.toLocaleDateString("es-ES", {
       month: "short",
       day: "numeric",
     });
