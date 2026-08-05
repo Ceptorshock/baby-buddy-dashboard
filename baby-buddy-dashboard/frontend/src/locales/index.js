@@ -1,16 +1,4 @@
-import en from "./en";
 import es from "./es";
-
-const languages = {
-  en,
-  es,
-};
-
-const browserLanguage = navigator.language.toLowerCase();
-
-const currentLanguage = browserLanguage.startsWith("es")
-  ? "es"
-  : "en";
 
 function getNestedValue(obj, path) {
   return path
@@ -19,14 +7,7 @@ function getNestedValue(obj, path) {
 }
 
 export function t(key, params) {
-  let translated = getNestedValue(
-    languages[currentLanguage],
-    key,
-  );
-
-  if (translated === undefined) {
-    translated = getNestedValue(languages.en, key);
-  }
+  let translated = getNestedValue(es, key);
 
   if (translated === undefined) {
     console.warn(`Missing translation: ${key}`);
