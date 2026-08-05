@@ -47,15 +47,15 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
   };
 
   return (
-    <Modal title={isEdit ? "Edit Sleep" : "Log Sleep"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar sueño" : "Registrar sueño"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         {!isEdit && timerId ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-            The timer's start and end times will be used for this sleep entry.
+            Se utilizarán las horas de inicio y fin del temporizador para este registro de sueño.
           </p>
         ) : (
           <>
-            <FormField label="Start">
+            <FormField label="Inicio">
               <FormInput
                 type="datetime-local"
                 value={start}
@@ -63,7 +63,7 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
                 required
               />
             </FormField>
-            <FormField label="End">
+            <FormField label="Fin">
               <FormInput
                 type="datetime-local"
                 value={end}
@@ -73,16 +73,16 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
             </FormField>
           </>
         )}
-        <FormField label="Notes">
+        <FormField label="Notas">
           <FormInput
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional"
+            placeholder="Opcional"
           />
         </FormField>
         <FormButton color={colors.sleep} disabled={saving}>
-          {saving ? "Saving..." : isEdit ? "Update Sleep" : "Save Sleep"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar sueño" : "Guardar sueño"}
         </FormButton>
       </form>
     </Modal>

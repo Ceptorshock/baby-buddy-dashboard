@@ -39,9 +39,9 @@ export default function HeightForm({ childId, entry, onDone, onClose }) {
   };
 
   return (
-    <Modal title={isEdit ? "Edit Height" : "Log Height"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar altura" : "Registrar altura"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <FormField label={`Height (${units.length})`}>
+        <FormField label={`Altura (${units.length})`}>
           <FormInput
             type="number"
             value={height}
@@ -54,7 +54,7 @@ export default function HeightForm({ childId, entry, onDone, onClose }) {
             required
           />
         </FormField>
-        <FormField label="Date">
+        <FormField label="Fecha">
           <FormInput
             type="date"
             value={date}
@@ -63,7 +63,7 @@ export default function HeightForm({ childId, entry, onDone, onClose }) {
           />
         </FormField>
         <FormButton color={colors.height} disabled={saving || !height}>
-          {saving ? "Saving..." : isEdit ? "Update Height" : "Save Height"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar altura" : "Guardar altura"}
         </FormButton>
       </form>
     </Modal>

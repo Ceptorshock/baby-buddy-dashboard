@@ -43,16 +43,16 @@ export default function TummyTimeForm({ childId, timerId, entry, onDone, onClose
   };
 
   return (
-    <Modal title={isEdit ? "Edit Tummy Time" : "Log Tummy Time"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar tiempo boca abajo" : "Registrar tiempo boca abajo"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         {!isEdit && timerId ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-            The timer's start and end times will be used for this tummy time entry.
+            Se utilizarán las horas de inicio y fin del temporizador para este registro.
           </p>
         ) : null}
         {(isEdit || !timerId) && (
           <>
-            <FormField label="Start">
+            <FormField label="Inicio">
               <FormInput
                 type="datetime-local"
                 value={start}
@@ -60,7 +60,7 @@ export default function TummyTimeForm({ childId, timerId, entry, onDone, onClose
                 required
               />
             </FormField>
-            <FormField label="End">
+            <FormField label="Fin">
               <FormInput
                 type="datetime-local"
                 value={end}
@@ -70,15 +70,15 @@ export default function TummyTimeForm({ childId, timerId, entry, onDone, onClose
             </FormField>
           </>
         )}
-        <FormField label="Milestone (optional)">
+        <FormField label="Hito (opcional)">
           <FormInput
             value={milestone}
             onChange={(e) => setMilestone(e.target.value)}
-            placeholder="e.g., Lifted head"
+            placeholder="Por ejemplo, levantó la cabeza"
           />
         </FormField>
         <FormButton color={colors.tummy} disabled={saving}>
-          {saving ? "Saving..." : isEdit ? "Update Tummy Time" : "Save Tummy Time"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar tiempo boca abajo" : "Guardar tiempo boca abajo"}
         </FormButton>
       </form>
     </Modal>

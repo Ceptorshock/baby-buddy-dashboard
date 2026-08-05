@@ -97,7 +97,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                 <Icons.Weight />
               </div>
               <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                Weight
+                Peso
               </span>
             </div>
             <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>
@@ -105,7 +105,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
             </div>
             {latestWeight && (
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {new Date(latestWeight.date).toLocaleDateString()}
+                {new Date(latestWeight.date).toLocaleDateString("es-ES")}
               </div>
             )}
           </div>
@@ -136,7 +136,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                 <Icons.Ruler />
               </div>
               <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                Height
+                Altura
               </span>
             </div>
             <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>
@@ -144,7 +144,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
             </div>
             {latestHeight && (
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {new Date(latestHeight.date).toLocaleDateString()}
+                {new Date(latestHeight.date).toLocaleDateString("es-ES")}
               </div>
             )}
           </div>
@@ -175,14 +175,14 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                 <Icons.Bottle />
               </div>
               <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                Avg Feeding
+                Media de tomas
               </span>
             </div>
             <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>
               {avgFeeding ? `${avgFeeding} ${units.volume}` : "—"}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-              per day (30d)
+              al día (30 días)
             </div>
           </div>
         </div>
@@ -212,14 +212,14 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                 <Icons.Moon />
               </div>
               <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                Avg Sleep
+                Sueño medio
               </span>
             </div>
             <div style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>
               {avgSleep ? `${avgSleep} h` : "—"}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-              per day (30d)
+              al día (30 días)
             </div>
           </div>
         </div>
@@ -235,7 +235,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
       >
         {/* Daily Feeding Totals */}
         <div className="fade-in fade-in-5">
-          <SectionCard title="Daily Feeding (30d)" icon={<Icons.Bottle />} color={colors.feeding}>
+          <SectionCard title="Tomas diarias (30 días)" icon={<Icons.Bottle />} color={colors.feeding}>
             {feedingSeries.some((d) => d.amount > 0) ? (
               <>
                 <div style={{ height: 200 }}>
@@ -271,7 +271,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               </>
             ) : (
               <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-                No feeding data recorded yet
+                Todavía no hay datos de tomas
               </div>
             )}
           </SectionCard>
@@ -279,7 +279,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
 
         {/* Daily Sleep Totals */}
         <div className="fade-in fade-in-6">
-          <SectionCard title="Daily Sleep (30d)" icon={<Icons.Moon />} color={colors.sleep}>
+          <SectionCard title="Sueño diario (30 días)" icon={<Icons.Moon />} color={colors.sleep}>
             {sleepSeries.some((d) => d.hours > 0) ? (
               <>
                 <div style={{ height: 200 }}>
@@ -315,7 +315,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               </>
             ) : (
               <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-                No sleep data recorded yet
+                Todavía no hay datos de sueño
               </div>
             )}
           </SectionCard>
@@ -323,7 +323,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
 
         {/* Weight Chart */}
         <div className="fade-in fade-in-7">
-          <SectionCard title="Weight Trend" icon={<Icons.Weight />} color={colors.growth}>
+          <SectionCard title="Evolución del peso" icon={<Icons.Weight />} color={colors.growth}>
             {weightSeries.length >= 2 ? (
               <>
                 <div style={{ height: 200 }}>
@@ -350,7 +350,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                     value={selectedBar.value}
                     unit={units.weight}
                     color={colors.growth}
-                    actionLabel="Edit"
+                    actionLabel="Editar"
                     onViewEntries={() => {
                       if (selectedBar.entry) onEditEntry?.("weight", selectedBar.entry);
                       setSelectedBar(null);
@@ -361,7 +361,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               </>
             ) : (
               <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-                {weightSeries.length === 1 ? "Need at least 2 measurements to show trend" : "No weight data recorded yet"}
+                {weightSeries.length === 1 ? "Se necesitan al menos dos mediciones para mostrar la evolución" : "Todavía no hay datos de peso"}
               </div>
             )}
           </SectionCard>
@@ -369,7 +369,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
 
         {/* Height Chart */}
         <div className="fade-in fade-in-8">
-          <SectionCard title="Height Trend" icon={<Icons.Ruler />} color={colors.height}>
+          <SectionCard title="Evolución de la altura" icon={<Icons.Ruler />} color={colors.height}>
             {heightSeries.length >= 2 ? (
               <>
                 <div style={{ height: 200 }}>
@@ -396,7 +396,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
                     value={selectedBar.value}
                     unit={units.length}
                     color={colors.height}
-                    actionLabel="Edit"
+                    actionLabel="Editar"
                     onViewEntries={() => {
                       if (selectedBar.entry) onEditEntry?.("height", selectedBar.entry);
                       setSelectedBar(null);
@@ -407,7 +407,7 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               </>
             ) : (
               <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-                {heightSeries.length === 1 ? "Need at least 2 measurements to show trend" : "No height data recorded yet"}
+                {heightSeries.length === 1 ? "Se necesitan al menos dos mediciones para mostrar la evolución" : "Todavía no hay datos de altura"}
               </div>
             )}
           </SectionCard>

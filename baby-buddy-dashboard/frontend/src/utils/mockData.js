@@ -322,9 +322,9 @@ function emmaData() {
       height: (49 + i * 1.5).toFixed(1),
     })),
     notes: [
-      { id: 1, child: 1, note: "Emma smiled for the first time today!", time: isoLocal(hoursAgo(3)) },
-      { id: 2, child: 1, note: "Started showing interest in colorful toys during tummy time", time: isoLocal(hoursAgo(8)) },
-      { id: 3, child: 1, note: "Doctor visit: all vaccinations up to date, growing well", time: isoLocal(hoursAgo(48)) },
+      { id: 1, child: 1, note: "¡Emma ha sonreído por primera vez hoy!", time: isoLocal(hoursAgo(3)) },
+      { id: 2, child: 1, note: "Ha empezado a interesarse por los juguetes de colores durante el tiempo boca abajo", time: isoLocal(hoursAgo(8)) },
+      { id: 3, child: 1, note: "Consulta médica: vacunas al día y crecimiento correcto", time: isoLocal(hoursAgo(48)) },
     ],
     monthlyFeedings: emmaMonthlyFeedings(),
     monthlySleep: emmaMonthlySleep(),
@@ -353,8 +353,8 @@ function liamData() {
       height: (84.0 + i * 0.8).toFixed(1),
     })),
     notes: [
-      { id: 4, child: 2, note: "Liam said 'banana' clearly for the first time", time: isoLocal(hoursAgo(5)) },
-      { id: 5, child: 2, note: "Loves playing with building blocks, stacked 5 high today", time: isoLocal(hoursAgo(28)) },
+      { id: 4, child: 2, note: "Liam ha dicho «banana» claramente por primera vez", time: isoLocal(hoursAgo(5)) },
+      { id: 5, child: 2, note: "Le encanta jugar con bloques; hoy ha apilado cinco", time: isoLocal(hoursAgo(28)) },
     ],
     monthlyFeedings: liamMonthlyFeedings(),
     monthlySleep: liamMonthlySleep(),

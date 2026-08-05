@@ -1,6 +1,8 @@
 export default function DiaperBadge({ type }) {
   const bg =
     type === "solid" ? "#D97706" : type === "both" ? "#8B5CF6" : "#3B82F6";
+  const labels = { wet: "Pis", solid: "Caca", both: "Ambos" };
+
   return (
     <span
       style={{
@@ -15,7 +17,7 @@ export default function DiaperBadge({ type }) {
         letterSpacing: "0.04em",
       }}
     >
-      {type}
+      {labels[type] || type}
     </span>
   );
 }

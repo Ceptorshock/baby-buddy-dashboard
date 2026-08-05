@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.2.8-es6"
+version: "1.2.8-es7"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con gráficos, temporizadores y registro rápido."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
@@ -16,7 +16,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: "mdi:baby-face-outline"
-panel_title: "Panel Bebe"
+panel_title: "Bebé"
 panel_admin: false
 options:
   baby_buddy_url: ""

@@ -20,41 +20,41 @@ import TimerButton from "./components/TimerButton";
 import "./styles.css";
 
 const TABS = [
-  { id: "overview", label: "Overview", icon: <Icons.Activity /> },
-  { id: "growth", label: "Growth", icon: <Icons.TrendUp /> },
-  { id: "notes", label: "Notes", icon: <Icons.StickyNote /> },
+  { id: "overview", label: "Resumen", icon: <Icons.Activity /> },
+  { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
+  { id: "notes", label: "Notas", icon: <Icons.StickyNote /> },
 ];
 
 const ACTION_GROUPS = [
   {
-    label: "Track",
+    label: "Registrar",
     actions: [
-      { id: "feeding", label: "Feeding", icon: <Icons.Bottle />, color: colors.feeding },
-      { id: "sleep", label: "Sleep", icon: <Icons.Moon />, color: colors.sleep },
-      { id: "diaper", label: "Diaper", icon: <Icons.Droplet />, color: colors.diaper },
-      { id: "tummy", label: "Tummy", icon: <Icons.Sun />, color: colors.tummy },
+      { id: "feeding", label: "Toma", icon: <Icons.Bottle />, color: colors.feeding },
+      { id: "sleep", label: "Sueño", icon: <Icons.Moon />, color: colors.sleep },
+      { id: "diaper", label: "Pañal", icon: <Icons.Droplet />, color: colors.diaper },
+      { id: "tummy", label: "Boca abajo", icon: <Icons.Sun />, color: colors.tummy },
     ],
   },
   {
-    label: "Measure",
+    label: "Medir",
     actions: [
-      { id: "temp", label: "Temp", icon: <Icons.Temp />, color: colors.temp },
-      { id: "weight", label: "Weight", icon: <Icons.Weight />, color: colors.growth },
-      { id: "height", label: "Height", icon: <Icons.Ruler />, color: colors.height },
+      { id: "temp", label: "Temperatura", icon: <Icons.Temp />, color: colors.temp },
+      { id: "weight", label: "Peso", icon: <Icons.Weight />, color: colors.growth },
+      { id: "height", label: "Altura", icon: <Icons.Ruler />, color: colors.height },
     ],
   },
   {
-    label: "Note",
+    label: "Nota",
     actions: [
-      { id: "note", label: "Note", icon: <Icons.StickyNote />, color: colors.note },
+      { id: "note", label: "Nota", icon: <Icons.StickyNote />, color: colors.note },
     ],
   },
 ];
 
 const TIMER_TYPES = [
-  { id: "feeding", label: "Feeding", icon: <Icons.Bottle />, color: colors.feeding },
-  { id: "sleep", label: "Sleep", icon: <Icons.Moon />, color: colors.sleep },
-  { id: "tummy", label: "Tummy Time", icon: <Icons.Sun />, color: colors.tummy },
+  { id: "feeding", label: "Toma", icon: <Icons.Bottle />, color: colors.feeding },
+  { id: "sleep", label: "Sueño", icon: <Icons.Moon />, color: colors.sleep },
+  { id: "tummy", label: "Tiempo boca abajo", icon: <Icons.Sun />, color: colors.tummy },
 ];
 
 function toLocalDatetime(date) {
@@ -65,9 +65,17 @@ function toLocalDatetime(date) {
 function timerNameToType(name) {
   if (!name) return "feeding";
   const n = name.toLowerCase();
-  if (n.includes("sleep")) return "sleep";
-  if (n.includes("tummy")) return "tummy";
+  if (n.includes("sleep") || n.includes("sueño")) return "sleep";
+  if (n.includes("tummy") || n.includes("boca abajo")) return "tummy";
   return "feeding";
+}
+
+function localizeTimerName(name) {
+  const value = (name || "").toLowerCase();
+  if (value.includes("sleep") || value.includes("sueño")) return "Sueño";
+  if (value.includes("tummy") || value.includes("boca abajo")) return "Tiempo boca abajo";
+  if (value.includes("feeding") || value.includes("toma")) return "Toma";
+  return name || "Temporizador";
 }
 
 export default function App() {
@@ -76,7 +84,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("overview");
   const [modal, setModal] = useState(null);
   const [showActions, setShowActions] = useState(false);
-  const [expandedGroup, setExpandedGroup] = useState("Track");
+  const [expandedGroup, setExpandedGroup] = useState("Registrar");
   const [showTimerPicker, setShowTimerPicker] = useState(false);
   const [editingTimerId, setEditingTimerId] = useState(null);
 
@@ -90,7 +98,7 @@ export default function App() {
     return (
       <div className="app-loading">
         <div className="loading-spinner" />
-        <span style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading...</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 14 }}>Cargando...</span>
       </div>
     );
   }
@@ -110,7 +118,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="baby-name">
-              {data.child?.first_name || "Baby"}
+              {data.child?.first_name || "Bebé"}
             </h1>
             {data.child?.birth_date && (
               <span className="baby-age">{getAge(data.child.birth_date)}</span>
@@ -119,14 +127,14 @@ export default function App() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {data.error && (
-            <span className="sync-error">Connection error</span>
+            <span className="sync-error">Error de conexión</span>
           )}
           {data.lastSync && !data.error && (
             <span className="sync-time">
-              {data.lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {data.lastSync.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
-          <button className="refresh-btn" onClick={data.refetch} title="Refresh">
+          <button className="refresh-btn" onClick={data.refetch} title="Actualizar">
             <Icons.Activity />
           </button>
         </div>
@@ -154,7 +162,7 @@ export default function App() {
             <span className="timer-pulse" />
             <Icons.Timer />
             <span style={{ fontSize: 13, fontWeight: 500 }}>
-              {t.name}
+              {localizeTimerName(t.name)}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -179,7 +187,7 @@ export default function App() {
               <span
                 className="timer-elapsed"
                 style={{ cursor: "pointer" }}
-                title="Click to edit start time"
+                title="Pulsa para editar la hora de inicio"
                 onClick={() => setEditingTimerId(t.id)}
               >
                 {formatElapsed(timer.elapsedMap[t.id] || 0)}
@@ -194,11 +202,12 @@ export default function App() {
                 }
               }}
             >
-              Save
+              Guardar
             </button>
             <button
               className="timer-discard-btn"
               onClick={() => timer.discardTimer(t.id)}
+              title="Descartar temporizador"
             >
               <Icons.X />
             </button>
@@ -315,7 +324,7 @@ export default function App() {
           </div>
         )}
         <TimerButton
-          label="Timer"
+          label="Temporizador"
           icon={<Icons.Timer />}
           color={colors.feeding}
           active={false}
@@ -327,7 +336,7 @@ export default function App() {
         <button
           className="fab-btn"
           style={{ background: showActions ? "var(--text-muted)" : colors.feeding }}
-          onClick={() => { setShowActions(!showActions); setShowTimerPicker(false); setExpandedGroup("Track"); }}
+          onClick={() => { setShowActions(!showActions); setShowTimerPicker(false); setExpandedGroup("Registrar"); }}
         >
           <span style={{ transform: showActions ? "rotate(45deg)" : "none", transition: "transform 0.2s", display: "flex" }}>
             <Icons.Plus />

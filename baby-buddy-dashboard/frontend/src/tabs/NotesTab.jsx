@@ -13,7 +13,7 @@ export default function NotesTab({ notes, onEditEntry }) {
 
   return (
     <div className="fade-in fade-in-1">
-      <SectionCard title="Notes" icon={<Icons.StickyNote />} color={colors.note}>
+      <SectionCard title="Notas" icon={<Icons.StickyNote />} color={colors.note}>
         {noteTimeline.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column" }}>
             {(expanded ? noteTimeline : noteTimeline.slice(0, COLLAPSED_COUNT)).map((n, i, arr) => (
@@ -36,13 +36,13 @@ export default function NotesTab({ notes, onEditEntry }) {
                 className="expand-toggle"
                 onClick={() => setExpanded(!expanded)}
               >
-                {expanded ? "Show less" : `Show ${noteTimeline.length - COLLAPSED_COUNT} more`}
+                {expanded ? "Mostrar menos" : `Mostrar ${noteTimeline.length - COLLAPSED_COUNT} más`}
               </button>
             )}
           </div>
         ) : (
           <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-            No notes yet — tap + to add one
+            Todavía no hay notas. Pulsa + para añadir una
           </div>
         )}
       </SectionCard>

@@ -1,5 +1,27 @@
 import { t as translate } from "../locales";
 
+const FEEDING_TYPES = {
+  "breast milk": "Leche materna",
+  formula: "Leche de fórmula",
+  "fortified breast milk": "Leche materna fortificada",
+  "solid food": "Alimentos sólidos",
+  "fortified milk": "Leche fortificada",
+};
+
+const FEEDING_METHODS = {
+  bottle: "Biberón",
+  "left breast": "Pecho izquierdo",
+  "right breast": "Pecho derecho",
+  "both breasts": "Ambos pechos",
+  "parent fed": "Dado por un adulto",
+  "self fed": "Comió solo/a",
+};
+
+function localizeFeedingValue(value, dictionary) {
+  if (!value) return "";
+  return dictionary[String(value).toLowerCase()] || value;
+}
+
 export function getAge(birthDate) {
   const birth = new Date(birthDate);
   const now = new Date();
@@ -66,20 +88,27 @@ export function parseDuration(durationStr) {
 export function formatDuration(durationStr) {
   if (!durationStr) return "—";
   const hours = parseDuration(durationStr);
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  return `${hours.toFixed(1)}h`;
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  return `${hours.toFixed(1)} h`;
 }
 
 export function toFeedingTimeline(feedings, volumeUnit = "mL") {
-  return feedings.map((f) => ({
-    time: formatTime(f.end || f.start),
-    label: `${f.amount ? f.amount + " " + volumeUnit : ""} ${f.method || f.type || ""}`.trim() || translate("action.feeding"),
-    detail: timeAgo(f.end || f.start),
-    amount: f.amount || 0,
-    type: f.type,
-    method: f.method,
-    entry: f,
-  }));
+  return feedings.map((f) => {
+    const amount = f.amount ? `${f.amount} ${volumeUnit}` : "";
+    const method = localizeFeedingValue(f.method, FEEDING_METHODS);
+    const type = localizeFeedingValue(f.type, FEEDING_TYPES);
+    const description = method || type || translate("action.feeding");
+
+    return {
+      time: formatTime(f.end || f.start),
+      label: [amount, description].filter(Boolean).join(" "),
+      detail: timeAgo(f.end || f.start),
+      amount: f.amount || 0,
+      type: f.type,
+      method: f.method,
+      entry: f,
+    };
+  });
 }
 
 export function toDiaperTimeline(changes) {

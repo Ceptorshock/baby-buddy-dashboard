@@ -39,9 +39,9 @@ export default function WeightForm({ childId, entry, onDone, onClose }) {
   };
 
   return (
-    <Modal title={isEdit ? "Edit Weight" : "Log Weight"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar peso" : "Registrar peso"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <FormField label={`Weight (${units.weight})`}>
+        <FormField label={`Peso (${units.weight})`}>
           <FormInput
             type="number"
             value={weight}
@@ -54,7 +54,7 @@ export default function WeightForm({ childId, entry, onDone, onClose }) {
             required
           />
         </FormField>
-        <FormField label="Date">
+        <FormField label="Fecha">
           <FormInput
             type="date"
             value={date}
@@ -63,7 +63,7 @@ export default function WeightForm({ childId, entry, onDone, onClose }) {
           />
         </FormField>
         <FormButton color={colors.growth} disabled={saving || !weight}>
-          {saving ? "Saving..." : isEdit ? "Update Weight" : "Save Weight"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar peso" : "Guardar peso"}
         </FormButton>
       </form>
     </Modal>

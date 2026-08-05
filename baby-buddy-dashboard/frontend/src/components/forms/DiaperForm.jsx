@@ -9,11 +9,11 @@ function toLocalDatetime(date) {
 }
 
 const COLORS = [
-  { value: "", label: "Not specified" },
-  { value: "black", label: "Black" },
-  { value: "brown", label: "Brown" },
-  { value: "green", label: "Green" },
-  { value: "yellow", label: "Yellow" },
+  { value: "", label: "Sin especificar" },
+  { value: "black", label: "Negro" },
+  { value: "brown", label: "Marrón" },
+  { value: "green", label: "Verde" },
+  { value: "yellow", label: "Amarillo" },
 ];
 
 export default function DiaperForm({ childId, entry, onDone, onClose, preset }) {
@@ -45,9 +45,9 @@ export default function DiaperForm({ childId, entry, onDone, onClose, preset }) 
   };
 
   return (
-    <Modal title={isEdit ? "Edit Diaper Change" : "Log Diaper Change"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar cambio de pañal" : "Registrar cambio de pañal"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <FormField label="Time">
+        <FormField label="Hora">
           <FormInput
             type="datetime-local"
             value={time}
@@ -57,8 +57,8 @@ export default function DiaperForm({ childId, entry, onDone, onClose, preset }) 
         </FormField>
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           {[
-            { key: "wet", label: "Wet", active: wet, toggle: () => setWet(!wet) },
-            { key: "solid", label: "Solid", active: solid, toggle: () => setSolid(!solid) },
+            { key: "wet", label: "Pis", active: wet, toggle: () => setWet(!wet) },
+            { key: "solid", label: "Caca", active: solid, toggle: () => setSolid(!solid) },
           ].map((btn) => (
             <button
               key={btn.key}
@@ -86,16 +86,16 @@ export default function DiaperForm({ childId, entry, onDone, onClose, preset }) 
             <FormSelect options={COLORS} value={color} onChange={(e) => setColor(e.target.value)} />
           </FormField>
         )}
-        <FormField label="Notes">
+        <FormField label="Notas">
           <FormInput
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional"
+            placeholder="Opcional"
           />
         </FormField>
         <FormButton color={colors.diaper} disabled={saving || (!wet && !solid)}>
-          {saving ? "Saving..." : isEdit ? "Update Change" : "Save Change"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar cambio" : "Guardar cambio"}
         </FormButton>
       </form>
     </Modal>

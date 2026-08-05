@@ -33,9 +33,9 @@ export default function NoteForm({ childId, entry, onDone, onClose }) {
   };
 
   return (
-    <Modal title={isEdit ? "Edit Note" : "Add Note"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar nota" : "Añadir nota"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <FormField label="Time">
+        <FormField label="Hora">
           <FormInput
             type="datetime-local"
             value={time}
@@ -43,7 +43,7 @@ export default function NoteForm({ childId, entry, onDone, onClose }) {
             required
           />
         </FormField>
-        <FormField label="Note">
+        <FormField label="Nota">
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -64,7 +64,7 @@ export default function NoteForm({ childId, entry, onDone, onClose }) {
           />
         </FormField>
         <FormButton color={colors.note} disabled={saving || !note.trim()}>
-          {saving ? "Saving..." : isEdit ? "Update Note" : "Save Note"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar nota" : "Guardar nota"}
         </FormButton>
       </form>
     </Modal>

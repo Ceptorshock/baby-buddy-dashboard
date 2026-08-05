@@ -25,9 +25,9 @@ export default function TemperatureForm({ childId, onDone, onClose }) {
   };
 
   return (
-    <Modal title="Log Temperature" onClose={onClose}>
+    <Modal title="Registrar temperatura" onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <FormField label={`Temperature (${units.temp})`}>
+        <FormField label={`Temperatura (${units.temp})`}>
           <FormInput
             type="number"
             value={temp}
@@ -40,7 +40,7 @@ export default function TemperatureForm({ childId, onDone, onClose }) {
           />
         </FormField>
         <FormButton color={colors.temp} disabled={saving || !temp}>
-          {saving ? "Saving..." : "Save Temperature"}
+          {saving ? "Guardando..." : "Guardar temperatura"}
         </FormButton>
       </form>
     </Modal>

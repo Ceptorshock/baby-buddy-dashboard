@@ -12,7 +12,7 @@ export function useTimers(serverTimers, childId) {
       setActiveTimers(
         serverTimers.map((t) => ({
           id: t.id,
-          name: t.name || "timer",
+          name: t.name || "Temporizador",
           start: new Date(t.start),
         }))
       );
