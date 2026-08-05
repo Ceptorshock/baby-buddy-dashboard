@@ -1,26 +1,28 @@
 import en from "./en";
-import de from "./de";
 import es from "./es";
 
 const languages = {
-  de,
   en,
   es,
 };
 
 const browserLanguage = navigator.language.toLowerCase();
+
 const currentLanguage = browserLanguage.startsWith("es")
   ? "es"
-  : browserLanguage.startsWith("de")
-    ? "de"
-    : "en";
+  : "en";
 
 function getNestedValue(obj, path) {
-  return path.split(".").reduce((value, key) => value?.[key], obj);
+  return path
+    .split(".")
+    .reduce((value, key) => value?.[key], obj);
 }
 
 export function t(key, params) {
-  let translated = getNestedValue(languages[currentLanguage], key);
+  let translated = getNestedValue(
+    languages[currentLanguage],
+    key,
+  );
 
   if (translated === undefined) {
     translated = getNestedValue(languages.en, key);
@@ -33,7 +35,10 @@ export function t(key, params) {
 
   if (params) {
     Object.entries(params).forEach(([paramKey, value]) => {
-      translated = translated.replaceAll(`{${paramKey}}`, value);
+      translated = translated.replaceAll(
+        `{${paramKey}}`,
+        String(value),
+      );
     });
   }
 
