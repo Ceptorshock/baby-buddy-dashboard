@@ -1,3 +1,8 @@
+import { t as translate } from "../locales";
+
+const resolvedActionLabel =
+  actionLabel || translate("common.viewEntries");
+
 export default function ChartDetailBar({ label, value, unit, color, onViewEntries, onDismiss, actionLabel = "View entries" }) {
   if (!label) return null;
   return (
@@ -46,7 +51,7 @@ export default function ChartDetailBar({ label, value, unit, color, onViewEntrie
             border: "none",
             cursor: "pointer",
           }}
-          aria-label="Dismiss"
+          aria-label={translate("common.dismiss")}
         >
           ✕
         </button>
