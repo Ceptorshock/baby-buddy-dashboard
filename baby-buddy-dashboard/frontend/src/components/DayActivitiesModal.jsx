@@ -1,3 +1,5 @@
+import { t as translate } from "../locales";
+
 import Modal from "./Modal";
 import TimelineItem from "./TimelineItem";
 import DiaperBadge from "./DiaperBadge";
@@ -34,18 +36,18 @@ export default function DayActivitiesModal({ day, type, data, onEditEntry, onClo
 
   const getTitle = () => {
     const titles = {
-      feeding: "Feedings",
-      sleep: "Sleep Sessions",
-      tummy: "Tummy Time",
+      feeding: dayModal.feedings,
+      sleep: dayModal.sleepSessions,
+      tummy: dayModal.tummyTime,
     };
-    return `${titles[type] || "Activities"} - ${day}`;
+    return `${titles[type] || dayModal.activities} - ${day}`;
   };
 
   const renderContent = () => {
     if (!data || data.length === 0) {
       return (
         <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40 }}>
-          No {type} activities for this day
+          dayModal.noActivities
         </div>
       );
     }
