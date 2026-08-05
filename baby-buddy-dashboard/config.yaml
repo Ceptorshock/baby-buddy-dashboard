@@ -1,9 +1,7 @@
-name: "Baby Buddy Dashboard"
-version: "1.2.8"
-slug: "baby-buddy-dashboard"
-description: "Modern dashboard for Baby Buddy with charts, timers, and quick-log actions.
-              Supports running as a standalone web app or as a Home Assistant add-on.
-              It connects to your Baby Buddy instance using its API and provides a user-friendly interface to track your baby's activities and milestones."
+name: "Baby Buddy Dashboard ES"
+version: "1.2.8-es1"
+slug: "baby-buddy-dashboard-es"
+description: "Panel en castellano para Baby Buddy con gráficos, temporizadores y registro rápido."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
