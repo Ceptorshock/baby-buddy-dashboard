@@ -1,0 +1,16 @@
+configuration:
+  baby_buddy_url:
+    name: URL de Baby Buddy
+    description: "URL completa de la instancia de Baby Buddy, por ejemplo: http://192.168.1.40"
+  baby_buddy_api_key:
+    name: Clave API
+    description: "Token API de Baby Buddy, disponible en Ajustes > Clave API"
+  refresh_interval:
+    name: Intervalo de actualización
+    description: "Frecuencia, en segundos, con la que el panel consulta nuevos datos"
+  demo_mode:
+    name: Modo de demostración
+    description: "Muestra datos de ejemplo sin conectarse a Baby Buddy"
+  unit_system:
+    name: Sistema de unidades
+    description: "Unidades de medida: métrico (kg, cm, mL, °C) o imperial (lb, in, oz, °F)"
