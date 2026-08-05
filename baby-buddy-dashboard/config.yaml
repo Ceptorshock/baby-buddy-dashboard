@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.2.8-es4"
+version: "1.2.8-es5"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con gráficos, temporizadores y registro rápido."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
