@@ -1117,6 +1117,7 @@ async def get_room_statuses():
             "temperature": temp.get("state") if temp else None,
             "humidity": humidity.get("state") if humidity else None,
             "light": light.get("state") if light else None,
+            "light_entity": config.get("light_entity", ""),
             "window": window.get("state") if window else None,
             "diaper_stock": diaper_stock.get("stock"),
             "diaper_stock_available": diaper_stock.get("available", False),
@@ -1281,9 +1282,33 @@ async def toggle_room_light(child_id: int):
     entity_id = _room_config_for_child(child_id).get("light_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No light configured for child {child_id}")
-    await _call_ha_service("homeassistant.toggle", {"entity_id": entity_id})
-    updated = await _get_ha_state(entity_id)
-    return {"state": updated.get("state"), "entity_id": entity_id}
+
+    # Leer primero el estado para saber el resultado esperado. Usar turn_on/turn_off
+    # evita que dos pulsaciones o una actualización tardía inviertan el resultado.
+    current = await _get_ha_state(entity_id)
+    current_state = str(current.get("state", "off")).lower()
+    target_state = "off" if current_state == "on" else "on"
+    await _call_ha_service(
+        f"homeassistant.turn_{target_state}",
+        {"entity_id": entity_id},
+    )
+
+    # Home Assistant puede tardar unas décimas en publicar el nuevo estado.
+    # Esperar a la confirmación impide devolver inmediatamente el estado antiguo.
+    updated = current
+    confirmed = False
+    for _ in range(15):
+        await asyncio.sleep(0.12)
+        updated = await _get_ha_state(entity_id)
+        if str(updated.get("state", "")).lower() == target_state:
+            confirmed = True
+            break
+
+    return {
+        "state": target_state if not confirmed else updated.get("state"),
+        "entity_id": entity_id,
+        "confirmed": confirmed,
+    }
 
 
 @app.get("/api/room-camera/{child_id}")

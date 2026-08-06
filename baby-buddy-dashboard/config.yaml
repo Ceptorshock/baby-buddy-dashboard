@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.8.0-es16"
+version: "1.8.1-es17"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con nombres configurables, habitación compartida, citas editables, avisos móviles, stock dinámico, Telegram, deshacer y resúmenes."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"

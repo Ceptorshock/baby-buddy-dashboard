@@ -158,16 +158,58 @@ export function useBabyData() {
 
   const toggleRoomLight = useCallback(async (childId) => {
     if (!childId) return null;
-    const updated = await api.toggleRoomLight(childId);
-    setRoomStatuses((previous) => ({
-      ...previous,
-      [String(childId)]: {
-        ...(previous[String(childId)] || {}),
-        light: updated.state,
-      },
-    }));
-    return updated;
-  }, []);
+
+    const childKey = String(childId);
+    const selectedRoom = roomStatuses[childKey] || {};
+    const previousState = roomStatuses;
+    const targetState = selectedRoom.light === "on" ? "off" : "on";
+    const lightEntity = selectedRoom.light_entity || "";
+
+    // Actualización optimista: la tarjeta cambia en el mismo instante del clic.
+    // Si ambos bebés comparten la luz, se actualizan los dos perfiles a la vez.
+    setRoomStatuses((previous) => {
+      const next = { ...previous };
+      let matchedSharedEntity = false;
+
+      Object.entries(previous).forEach(([key, room]) => {
+        if (lightEntity && room?.light_entity === lightEntity) {
+          next[key] = { ...room, light: targetState };
+          matchedSharedEntity = true;
+        }
+      });
+
+      if (!matchedSharedEntity) {
+        next[childKey] = { ...(previous[childKey] || {}), light: targetState };
+      }
+      return next;
+    });
+
+    try {
+      const updated = await api.toggleRoomLight(childId);
+      const confirmedState = updated.state || targetState;
+      setRoomStatuses((previous) => {
+        const next = { ...previous };
+        let matchedSharedEntity = false;
+
+        Object.entries(previous).forEach(([key, room]) => {
+          if (lightEntity && room?.light_entity === lightEntity) {
+            next[key] = { ...room, light: confirmedState };
+            matchedSharedEntity = true;
+          }
+        });
+
+        if (!matchedSharedEntity) {
+          next[childKey] = { ...(previous[childKey] || {}), light: confirmedState };
+        }
+        return next;
+      });
+      return updated;
+    } catch (error) {
+      // Si Home Assistant rechaza la orden, recuperar el estado anterior.
+      setRoomStatuses(previousState);
+      throw error;
+    }
+  }, [roomStatuses]);
 
   const setDiaperSize = useCallback(async (childId, option) => {
     if (!childId || !option) return null;
