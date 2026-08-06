@@ -43,9 +43,10 @@ export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeCha
         await api.updateChange(entry.id, data);
       } else {
         data.child = childId;
-        await api.createChange(data);
+        const created = await api.createChange(data);
+        onDone({ type: "diaper", id: created.id, label: "Pañal", childId, diaper_size: selectedSize || diaperSize?.state || "" });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

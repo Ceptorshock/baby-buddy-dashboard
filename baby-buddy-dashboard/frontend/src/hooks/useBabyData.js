@@ -27,6 +27,7 @@ export function useBabyData() {
   const [sleepEntries, setSleepEntries] = useState([]);
   const [weeklySleep, setWeeklySleep] = useState([]);
   const [changes, setChanges] = useState([]);
+  const [recentChanges, setRecentChanges] = useState([]);
   const [tummyTimes, setTummyTimes] = useState([]);
   const [weeklyTummyTimes, setWeeklyTummyTimes] = useState([]);
   const [temperatures, setTemperatures] = useState([]);
@@ -42,6 +43,8 @@ export function useBabyData() {
   const [unitSystem, setUnitSystem] = useState("metric");
   const [diaperSizes, setDiaperSizes] = useState({});
   const [diaperSizeSaving, setDiaperSizeSaving] = useState(false);
+  const [roomStatuses, setRoomStatuses] = useState({});
+  const [alertsConfig, setAlertsConfig] = useState({ enabled: true, feeding_minutes: 240, active_timer_minutes: 180, room_temp_min: 18, room_temp_max: 27, diaper_stock_low_threshold: 10 });
   const intervalRef = useRef(null);
   const childIdRef = useRef(null);
   const defaultChildIdRef = useRef(null);
@@ -73,6 +76,7 @@ export function useBabyData() {
         sleepRes,
         weeklySleepRes,
         changesRes,
+        recentChangesRes,
         tummyRes,
         weeklyTummyRes,
         tempRes,
@@ -88,6 +92,7 @@ export function useBabyData() {
         api.getSleep({ child: c, start_min: sleepMin, limit: 100, ordering: "-start" }),
         api.getSleep({ child: c, start_min: weekMin, limit: 200, ordering: "-start" }),
         api.getChanges({ child: c, date_min: todayMin, date_max: todayMax, limit: 100, ordering: "-time" }),
+        api.getChanges({ child: c, limit: 20, ordering: "-time" }),
         api.getTummyTimes({ child: c, start_min: todayMin, start_max: todayMax, limit: 100, ordering: "-start" }),
         api.getTummyTimes({ child: c, start_min: weekMin, limit: 200, ordering: "-start" }),
         api.getTemperature({ child: c, limit: 10, ordering: "-time" }),
@@ -104,6 +109,7 @@ export function useBabyData() {
       setSleepEntries(sleepRes.results || []);
       setWeeklySleep(weeklySleepRes.results || []);
       setChanges(changesRes.results || []);
+      setRecentChanges(recentChangesRes.results || []);
       setTummyTimes(tummyRes.results || []);
       setWeeklyTummyTimes(weeklyTummyRes.results || []);
       setTemperatures(tempRes.results || []);
@@ -131,6 +137,28 @@ export function useBabyData() {
     }
   }, []);
 
+  const fetchRoomStatuses = useCallback(async () => {
+    try {
+      const result = await api.getRoomStatuses();
+      setRoomStatuses(result.rooms || {});
+    } catch {
+      // Room integration is optional.
+    }
+  }, []);
+
+  const toggleRoomLight = useCallback(async (childId) => {
+    if (!childId) return null;
+    const updated = await api.toggleRoomLight(childId);
+    setRoomStatuses((previous) => ({
+      ...previous,
+      [String(childId)]: {
+        ...(previous[String(childId)] || {}),
+        light: updated.state,
+      },
+    }));
+    return updated;
+  }, []);
+
   const setDiaperSize = useCallback(async (childId, option) => {
     if (!childId || !option) return null;
     setDiaperSizeSaving(true);
@@ -151,6 +179,7 @@ export function useBabyData() {
       const [childrenRes] = await Promise.all([
         api.getChildren(),
         fetchDiaperSizes(),
+        fetchRoomStatuses(),
       ]);
       const allChildren = (childrenRes.results || []).map(fixChildPicture);
       setChildren(allChildren);
@@ -170,7 +199,7 @@ export function useBabyData() {
       setError(err.message);
       setLoading(false);
     }
-  }, [fetchData, fetchDiaperSizes]);
+  }, [fetchData, fetchDiaperSizes, fetchRoomStatuses]);
 
   const selectChild = useCallback(
     (id) => {
@@ -194,6 +223,7 @@ export function useBabyData() {
     setSleepEntries(mock.sleepEntries);
     setWeeklySleep(mock.weeklySleep);
     setChanges(mock.changes);
+    setRecentChanges(mock.changes);
     setTummyTimes(mock.tummyTimes);
     setWeeklyTummyTimes(mock.weeklyTummyTimes);
     setTemperatures(mock.temperatures);
@@ -220,6 +250,7 @@ export function useBabyData() {
       setSleepEntries(mock.sleepEntries);
       setWeeklySleep(mock.weeklySleep);
       setChanges(mock.changes);
+      setRecentChanges(mock.changes);
       setTummyTimes(mock.tummyTimes);
       setWeeklyTummyTimes(mock.weeklyTummyTimes);
       setTemperatures(mock.temperatures);
@@ -240,6 +271,7 @@ export function useBabyData() {
       .getConfig()
       .then((cfg) => {
         if (cfg.unit_system) setUnitSystem(cfg.unit_system);
+        if (cfg.alerts) setAlertsConfig(cfg.alerts);
         const configuredDefault = Number(cfg.default_child_id || 0);
         defaultChildIdRef.current = configuredDefault > 0 ? configuredDefault : null;
         if (cfg.demo_mode) {
@@ -268,6 +300,7 @@ export function useBabyData() {
     sleepEntries,
     weeklySleep,
     changes,
+    recentChanges,
     tummyTimes,
     weeklyTummyTimes,
     temperatures,
@@ -285,6 +318,10 @@ export function useBabyData() {
     diaperSize: child ? diaperSizes[String(child.id)] : null,
     diaperSizeSaving,
     setDiaperSize,
+    roomStatuses,
+    roomStatus: child ? roomStatuses[String(child.id)] : null,
+    toggleRoomLight,
+    alertsConfig,
     refetch: fetchAll,
   };
 }

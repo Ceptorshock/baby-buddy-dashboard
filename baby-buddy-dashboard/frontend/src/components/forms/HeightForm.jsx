@@ -30,9 +30,10 @@ export default function HeightForm({ childId, entry, onDone, onClose }) {
         await api.updateHeight(entry.id, data);
       } else {
         data.child = childId;
-        await api.createHeight(data);
+        const created = await api.createHeight(data);
+        onDone({ type: "height", id: created.id, label: "Altura", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

@@ -24,9 +24,10 @@ export default function NoteForm({ childId, entry, onDone, onClose }) {
         await api.updateNote(entry.id, data);
       } else {
         data.child = childId;
-        await api.createNote(data);
+        const created = await api.createNote(data);
+        onDone({ type: "note", id: created.id, label: "Nota", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBabyData } from "./hooks/useBabyData";
 import { useTimers } from "./hooks/useTimers";
 import { UnitContext } from "./utils/units";
@@ -17,10 +17,15 @@ import NoteForm from "./components/forms/NoteForm";
 import WeightForm from "./components/forms/WeightForm";
 import HeightForm from "./components/forms/HeightForm";
 import TimerButton from "./components/TimerButton";
+import NowPanel from "./components/NowPanel";
+import AlertsPanel from "./components/AlertsPanel";
+import RoomCard from "./components/RoomCard";
+import UndoToast from "./components/UndoToast";
+import { api } from "./api";
 import "./styles.css";
 
 const TABS = [
-  { id: "overview", label: "Resumen", icon: <Icons.Activity /> },
+  { id: "overview", label: "Ahora", icon: <Icons.Activity /> },
   { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
   { id: "notes", label: "Notas", icon: <Icons.StickyNote /> },
 ];
@@ -87,11 +92,40 @@ export default function App() {
   const [expandedGroup, setExpandedGroup] = useState("Registrar");
   const [showTimerPicker, setShowTimerPicker] = useState(false);
   const [editingTimerId, setEditingTimerId] = useState(null);
+  const [undoItem, setUndoItem] = useState(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoMessage, setUndoMessage] = useState("");
+  const undoTimeoutRef = useRef(null);
 
   const closeModal = () => setModal(null);
-  const handleFormDone = () => {
+  const handleFormDone = (createdEntry = null) => {
     closeModal();
     data.refetch();
+    if (createdEntry?.id) {
+      clearTimeout(undoTimeoutRef.current);
+      setUndoMessage("");
+      setUndoItem(createdEntry);
+      undoTimeoutRef.current = setTimeout(() => setUndoItem(null), 18000);
+    }
+  };
+
+  useEffect(() => () => clearTimeout(undoTimeoutRef.current), []);
+
+  const handleUndo = async () => {
+    if (!undoItem) return;
+    setUndoBusy(true);
+    try {
+      const result = await api.undoEntry(undoItem);
+      clearTimeout(undoTimeoutRef.current);
+      setUndoItem(null);
+      setUndoMessage(result.warning || "Registro deshecho correctamente.");
+      setTimeout(() => setUndoMessage(""), 6000);
+      await data.refetch();
+    } catch (error) {
+      setUndoMessage(`No se pudo deshacer: ${error.message}`);
+    } finally {
+      setUndoBusy(false);
+    }
   };
 
   if (data.loading) {
@@ -181,13 +215,15 @@ export default function App() {
       )}
 
       {/* Active Timer Bars */}
-      {timer.activeTimers.map((t) => (
-        <div key={t.id} className="timer-bar fade-in">
+      {timer.activeTimers.length > 0 && (
+        <div className="timer-stack fade-in">
+          {timer.activeTimers.map((t) => (
+        <div key={t.id} className="timer-bar">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="timer-pulse" />
             <Icons.Timer />
             <span style={{ fontSize: 13, fontWeight: 500 }}>
-              {localizeTimerName(t.name)}
+              {data.child?.first_name}: {localizeTimerName(t.name)}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -227,7 +263,7 @@ export default function App() {
                 }
               }}
             >
-              Guardar
+              Finalizar
             </button>
             <button
               className="timer-discard-btn"
@@ -238,7 +274,9 @@ export default function App() {
             </button>
           </div>
         </div>
-      ))}
+          ))}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <nav className="tab-nav fade-in">
@@ -257,6 +295,29 @@ export default function App() {
       {/* Tab Content */}
       <main className="tab-content">
         {activeTab === "overview" && (
+          <>
+            <AlertsPanel
+              config={data.alertsConfig}
+              weeklyFeedings={data.weeklyFeedings}
+              activeTimers={timer.activeTimers}
+              elapsedMap={timer.elapsedMap}
+              roomStatus={data.roomStatus}
+            />
+            <NowPanel
+              weeklyFeedings={data.weeklyFeedings}
+              weeklySleep={data.weeklySleep}
+              recentChanges={data.recentChanges}
+              diaperSize={data.diaperSize}
+              activeTimers={timer.activeTimers}
+              elapsedMap={timer.elapsedMap}
+            />
+            <div className="overview-room-grid">
+              <RoomCard
+                childId={data.child?.id}
+                status={data.roomStatus}
+                onToggleLight={() => data.toggleRoomLight(data.child?.id)}
+              />
+            </div>
           <OverviewTab
             feedings={data.feedings}
             weeklyFeedings={data.weeklyFeedings}
@@ -267,6 +328,7 @@ export default function App() {
             weeklyTummyTimes={data.weeklyTummyTimes}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
+          </>
         )}
         {activeTab === "growth" && (
           <GrowthTab
@@ -368,6 +430,14 @@ export default function App() {
           </span>
         </button>
       </div>
+
+      <UndoToast
+        item={undoItem}
+        busy={undoBusy}
+        message={undoMessage}
+        onUndo={handleUndo}
+        onDismiss={() => { setUndoItem(null); setUndoMessage(""); }}
+      />
 
       {/* Modals */}
       {modal?.type === "feeding" && (

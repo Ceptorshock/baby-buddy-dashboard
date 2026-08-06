@@ -83,6 +83,9 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
 
   return (
     <>
+      <div className="section-title-row">
+        <div><span className="eyebrow">HOY</span><h2>Resumen diario</h2></div>
+      </div>
       {/* Quick Stats */}
       <div
         style={{
@@ -115,7 +118,7 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
             icon={<Icons.Droplet />}
             label="Pañales"
             value={totalDiapers}
-            sub={`${wetCount} con pis · ${solidCount} con caca · ${bothCount} ambos`}
+            sub={`${wetCount} solo pis · ${solidCount} solo caca · ${bothCount} ambos`}
             color={colors.diaper}
           />
         </div>

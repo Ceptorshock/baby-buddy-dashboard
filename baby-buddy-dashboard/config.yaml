@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.2.10-es11"
+version: "1.3.0-es11"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con bebé predeterminado, tallas de pañal por bebé, gráficos, temporizadores y registro rápido."
+description: "Panel en castellano para Baby Buddy con pantalla Ahora, habitación, avisos, deshacer, tallas de pañal y resúmenes diarios."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -26,11 +26,42 @@ options:
   demo_mode: false
   unit_system: metric
   default_child_id: 1
+  alerts_enabled: true
+  feeding_alert_minutes: 240
+  active_timer_alert_minutes: 180
+  room_temp_min: 18
+  room_temp_max: 27
+  diaper_stock_low_threshold: 10
+  grocy_restore_service: rest_command.grocy_reponer_panal
   diaper_size_entities:
     - child_id: 1
-      entity_id: input_select.bollito_talla_de_panal
+      entity_id: input_select.bollito_talla_panal
+      last_processed_entity: input_text.bollito_ultimo_panal_enviado_a_grocy
     - child_id: 2
-      entity_id: input_select.bollito2_talla_de_panal
+      entity_id: input_select.bebe_2_talla_panal
+      last_processed_entity: input_text.bebe_2_ultimo_panal_enviado_a_grocy
+  diaper_product_ids:
+    - size: Talla 0
+      product_id: 40
+    - size: Talla 1
+      product_id: 41
+    - size: Talla 2
+      product_id: 42
+    - size: Talla 3
+      product_id: 43
+    - size: Talla 4
+      product_id: 44
+    - size: Talla 5
+      product_id: 45
+    - size: Talla 6
+      product_id: 46
+  room_entities:
+    - child_id: 1
+      temperature_entity: sensor.termometro_bebe_temperature
+      humidity_entity: sensor.termometro_bebe_humidity
+      light_entity: switch.interruptor_luz_habitacion_bebe
+      window_entity: binary_sensor.sensor_ventana_habitacion_bebe_contact
+      camera_entity: camera.camara_bebe
 schema:
   baby_buddy_url: url
   baby_buddy_api_key: password
@@ -38,6 +69,25 @@ schema:
   demo_mode: bool
   unit_system: "list(metric|imperial)"
   default_child_id: "int(0,9999)"
+  alerts_enabled: bool
+  feeding_alert_minutes: "int(15,1440)"
+  active_timer_alert_minutes: "int(15,1440)"
+  room_temp_min: "float(0,40)"
+  room_temp_max: "float(0,40)"
+  diaper_stock_low_threshold: "int(0,1000)"
+  grocy_restore_service: str
   diaper_size_entities:
     - child_id: int
       entity_id: str
+      last_processed_entity: str?
+  diaper_product_ids:
+    - size: str
+      product_id: int
+  room_entities:
+    - child_id: int
+      temperature_entity: str?
+      humidity_entity: str?
+      light_entity: str?
+      window_entity: str?
+      camera_entity: str?
+      diaper_stock_entity: str?

@@ -57,9 +57,10 @@ export default function FeedingForm({ childId, timerId, entry, onDone, onClose }
           data.start = `${start}:00`;
           data.end = `${end}:00`;
         }
-        await api.createFeeding(data);
+        const created = await api.createFeeding(data);
+        onDone({ type: "feeding", id: created.id, label: "Toma", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

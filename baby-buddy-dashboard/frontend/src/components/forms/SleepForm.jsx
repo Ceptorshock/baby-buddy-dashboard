@@ -38,9 +38,10 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
           data.start = `${start}:00`;
           data.end = `${end}:00`;
         }
-        await api.createSleep(data);
+        const created = await api.createSleep(data);
+        onDone({ type: "sleep", id: created.id, label: "Sueño", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

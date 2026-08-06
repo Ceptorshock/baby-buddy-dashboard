@@ -1,6 +1,8 @@
 const API_BASE = "./api/baby-buddy";
 const CONFIG_PATH = "./api/config";
 const DIAPER_SIZES_PATH = "./api/diaper-sizes";
+const ROOM_STATUS_PATH = "./api/room-status";
+const UNDO_PATH = "./api/undo-entry";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -120,6 +122,36 @@ export const api = {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       throw new Error(`Diaper-size API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+
+
+  // Home Assistant room controls
+  getRoomStatuses: async () => {
+    const response = await fetch(ROOM_STATUS_PATH);
+    if (!response.ok) throw new Error(`Room API error ${response.status}`);
+    return response.json();
+  },
+  toggleRoomLight: async (childId) => {
+    const response = await fetch(`./api/room-light/${childId}/toggle`, { method: "POST" });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Room API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+
+  // Undo a newly-created Baby Buddy entry. Diapers also request stock restoration.
+  undoEntry: async (entry) => {
+    const response = await fetch(UNDO_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Undo API error ${response.status}: ${text}`);
     }
     return response.json();
   },

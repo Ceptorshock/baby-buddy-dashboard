@@ -14,11 +14,11 @@ export default function TemperatureForm({ childId, onDone, onClose }) {
     if (!temp) return;
     setSaving(true);
     try {
-      await api.createTemperature({
+      const created = await api.createTemperature({
         child: childId,
         temperature: parseFloat(temp),
       });
-      onDone();
+      onDone({ type: "temp", id: created.id, label: "Temperatura", childId });
     } catch {
       setSaving(false);
     }

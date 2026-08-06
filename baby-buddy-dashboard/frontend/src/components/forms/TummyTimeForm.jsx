@@ -34,9 +34,10 @@ export default function TummyTimeForm({ childId, timerId, entry, onDone, onClose
           data.end = `${end}:00`;
         }
         if (milestone.trim()) data.milestone = milestone.trim();
-        await api.createTummyTime(data);
+        const created = await api.createTummyTime(data);
+        onDone({ type: "tummy", id: created.id, label: "Tiempo boca abajo", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }

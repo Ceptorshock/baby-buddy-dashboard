@@ -9,8 +9,12 @@ export function useTimers(serverTimers, childId) {
   // Sync with server timers on data load
   useEffect(() => {
     if (serverTimers?.length > 0) {
+      const relevantTimers = serverTimers.filter((t) => {
+        const timerChildId = Number(t.child?.id ?? t.child ?? 0);
+        return !timerChildId || timerChildId === Number(childId);
+      });
       setActiveTimers(
-        serverTimers.map((t) => ({
+        relevantTimers.map((t) => ({
           id: t.id,
           name: t.name || "Temporizador",
           start: new Date(t.start),
@@ -19,7 +23,7 @@ export function useTimers(serverTimers, childId) {
     } else {
       setActiveTimers([]);
     }
-  }, [serverTimers]);
+  }, [serverTimers, childId]);
 
   // Tick elapsed time for all active timers
   useEffect(() => {

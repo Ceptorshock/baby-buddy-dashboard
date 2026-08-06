@@ -30,9 +30,10 @@ export default function WeightForm({ childId, entry, onDone, onClose }) {
         await api.updateWeight(entry.id, data);
       } else {
         data.child = childId;
-        await api.createWeight(data);
+        const created = await api.createWeight(data);
+        onDone({ type: "weight", id: created.id, label: "Peso", childId });
       }
-      onDone();
+      if (isEdit) onDone();
     } catch {
       setSaving(false);
     }
