@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.2.10-es9"
+version: "1.2.10-es10"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con bebé predeterminado, tallas de pañal por bebé, gráficos, temporizadores y registro rápido."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
