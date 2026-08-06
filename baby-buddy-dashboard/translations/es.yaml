@@ -24,3 +24,20 @@ configuration:
       entity_id:
         name: Entidad de talla
         description: "Entidad input_select de Home Assistant, por ejemplo input_select.bollito_talla_panal"
+  mobile_notify_services:
+    name: Teléfonos para avisos
+    description: "Acciones notify de los móviles separadas por comas, por ejemplo notify.mobile_app_gorka,notify.mobile_app_cris"
+  grocy_stock_entity:
+    name: Inventario de Grocy
+    description: "Sensor con el atributo products usado para calcular el stock de la talla activa"
+  calendar_entities:
+    name: Calendario por bebé
+    description: "Relaciona cada child_id con su entidad de calendario"
+    fields:
+      child_id:
+        name: ID del bebé
+        description: "ID interno del niño en Baby Buddy"
+      entity_id:
+        name: Entidad de calendario
+        description: "Por ejemplo calendar.bollito"
+

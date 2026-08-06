@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.4.0-es12"
+version: "1.6.0-es14"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con calendario por bebé, habitación interactiva, avisos de Home Assistant, deshacer y resúmenes diarios."
+description: "Panel en castellano para Baby Buddy con citas editables, avisos móviles múltiples, stock dinámico de pañales, Telegram, habitación, deshacer y resúmenes."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -34,8 +34,12 @@ options:
   diaper_stock_low_threshold: 10
   home_assistant_alert_notifications: true
   mobile_notify_service: ""
+  mobile_notify_services: ""
   alexa_notify_service: ""
   alexa_alert_types: "temperature,active_timer"
+  telegram_activity_notifications: true
+  telegram_chat_id: "-5472345660"
+  telegram_activity_types: "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping"
   calendar_days_ahead: 90
   calendar_max_events: 4
   calendar_entities:
@@ -44,13 +48,14 @@ options:
     - child_id: 2
       entity_id: calendar.bollito2
   grocy_restore_service: rest_command.grocy_reponer_panal
+  grocy_stock_entity: sensor.grocy_stock_por_ubicacion
   diaper_size_entities:
     - child_id: 1
       entity_id: input_select.bollito_talla_panal
       last_processed_entity: input_text.bollito_ultimo_panal_enviado_a_grocy
     - child_id: 2
-      entity_id: input_select.bollito2_talla_panal
-      last_processed_entity: input_text.bollito2_ultimo_panal_enviado_a_grocy
+      entity_id: input_select.bebe_2_talla_panal
+      last_processed_entity: input_text.bebe_2_ultimo_panal_enviado_a_grocy
   diaper_product_ids:
     - size: Talla 0
       product_id: 40
@@ -88,14 +93,19 @@ schema:
   diaper_stock_low_threshold: "int(0,1000)"
   home_assistant_alert_notifications: bool
   mobile_notify_service: str
+  mobile_notify_services: str
   alexa_notify_service: str
   alexa_alert_types: str
+  telegram_activity_notifications: bool
+  telegram_chat_id: str
+  telegram_activity_types: str
   calendar_days_ahead: "int(1,365)"
   calendar_max_events: "int(1,10)"
   calendar_entities:
     - child_id: int
       entity_id: str
   grocy_restore_service: str
+  grocy_stock_entity: str
   diaper_size_entities:
     - child_id: int
       entity_id: str

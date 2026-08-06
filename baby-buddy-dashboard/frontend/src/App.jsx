@@ -16,6 +16,7 @@ import TummyTimeForm from "./components/forms/TummyTimeForm";
 import NoteForm from "./components/forms/NoteForm";
 import WeightForm from "./components/forms/WeightForm";
 import HeightForm from "./components/forms/HeightForm";
+import CalendarForm from "./components/forms/CalendarForm";
 import TimerButton from "./components/TimerButton";
 import NowPanel from "./components/NowPanel";
 import AlertsPanel from "./components/AlertsPanel";
@@ -317,7 +318,10 @@ export default function App() {
                 status={data.roomStatus}
                 onToggleLight={() => data.toggleRoomLight(data.child?.id)}
               />
-              <CalendarCard status={data.calendarStatus} />
+              <CalendarCard
+                status={data.calendarStatus}
+                onAddEvent={() => setModal({ type: "calendar" })}
+              />
             </div>
           <OverviewTab
             feedings={data.feedings}
@@ -507,6 +511,17 @@ export default function App() {
           childId={data.child?.id}
           entry={modal.entry}
           onDone={handleFormDone}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "calendar" && (
+        <CalendarForm
+          childId={data.child?.id}
+          childName={data.child?.first_name}
+          onDone={async () => {
+            closeModal();
+            await data.refreshCalendars();
+          }}
           onClose={closeModal}
         />
       )}

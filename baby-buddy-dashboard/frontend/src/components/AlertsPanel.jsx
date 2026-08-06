@@ -31,7 +31,10 @@ export default function AlertsPanel({ config, weeklyFeedings, activeTimers, elap
     if (temperature > config.room_temp_max) alerts.push(`La habitación está caliente: ${temperature.toFixed(1)} °C.`);
   }
   const stock = Number(roomStatus?.diaper_stock);
-  if (Number.isFinite(stock) && stock <= config.diaper_stock_low_threshold) alerts.push(`Quedan ${stock} pañales de la talla activa.`);
+  const diaperSize = roomStatus?.diaper_size || "la talla activa";
+  if (roomStatus?.diaper_stock_available && Number.isFinite(stock) && stock <= config.diaper_stock_low_threshold) {
+    alerts.push(`Quedan ${stock} pañales de ${diaperSize}.`);
+  }
   if (!alerts.length) return null;
   return (
     <div className="alerts-panel fade-in">

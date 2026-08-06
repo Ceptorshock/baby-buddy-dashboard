@@ -16,12 +16,18 @@ function eventTime(event, date) {
   return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function CalendarCard({ status }) {
+export default function CalendarCard({ status, onAddEvent }) {
   if (!status?.configured) return null;
   const events = status.events || [];
 
   return (
     <SectionCard title="Próximas citas" icon={<Icons.Calendar />} color="#8B5CF6">
+      <div className="calendar-actions-row">
+        <button className="calendar-add-btn" type="button" onClick={onAddEvent}>
+          <Icons.Plus />
+          <span>Añadir cita</span>
+        </button>
+      </div>
       {!status.available ? (
         <div className="calendar-empty">No se pudo consultar el calendario.</div>
       ) : events.length === 0 ? (

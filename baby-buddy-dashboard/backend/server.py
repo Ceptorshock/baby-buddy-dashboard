@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +21,8 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("true", "1", "yes")
 UNIT_SYSTEM = os.environ.get("UNIT_SYSTEM", "metric").lower()
 DEFAULT_CHILD_ID = int(os.environ.get("DEFAULT_CHILD_ID", "0") or 0)
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+
+logger = logging.getLogger("baby_buddy_dashboard")
 
 
 def _load_options() -> dict:
@@ -116,6 +120,19 @@ def _load_calendar_entities(options: dict) -> dict[int, str]:
     return result
 
 
+def _parse_service_list(value) -> list[str]:
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[,\n;]+", str(value or ""))
+    result: list[str] = []
+    for item in raw_items:
+        service = str(item or "").strip()
+        if service and "." in service and service not in result:
+            result.append(service)
+    return result
+
+
 OPTIONS = _load_options()
 if not BABY_BUDDY_URL:
     BABY_BUDDY_URL = OPTIONS.get("baby_buddy_url", "").rstrip("/")
@@ -138,12 +155,33 @@ CALENDAR_ENTITIES = _load_calendar_entities(OPTIONS)
 CALENDAR_DAYS_AHEAD = max(1, int(OPTIONS.get("calendar_days_ahead", 90) or 90))
 CALENDAR_MAX_EVENTS = max(1, int(OPTIONS.get("calendar_max_events", 4) or 4))
 GROCY_RESTORE_SERVICE = str(OPTIONS.get("grocy_restore_service", "") or "").strip()
+GROCY_STOCK_ENTITY = str(OPTIONS.get("grocy_stock_entity", "sensor.grocy_stock_por_ubicacion") or "").strip()
 HOME_ASSISTANT_ALERT_NOTIFICATIONS = bool(OPTIONS.get("home_assistant_alert_notifications", True))
 MOBILE_NOTIFY_SERVICE = str(OPTIONS.get("mobile_notify_service", "") or "").strip()
+MOBILE_NOTIFY_SERVICES = _parse_service_list(OPTIONS.get("mobile_notify_services", ""))
+if MOBILE_NOTIFY_SERVICE and MOBILE_NOTIFY_SERVICE not in MOBILE_NOTIFY_SERVICES:
+    MOBILE_NOTIFY_SERVICES.append(MOBILE_NOTIFY_SERVICE)
 ALEXA_NOTIFY_SERVICE = str(OPTIONS.get("alexa_notify_service", "") or "").strip()
 ALEXA_ALERT_TYPES = {
     item.strip()
     for item in str(OPTIONS.get("alexa_alert_types", "temperature,active_timer") or "").split(",")
+    if item.strip()
+}
+TELEGRAM_ACTIVITY_NOTIFICATIONS = bool(OPTIONS.get("telegram_activity_notifications", True))
+TELEGRAM_CHAT_ID_RAW = str(OPTIONS.get("telegram_chat_id", "-5472345660") or "").strip()
+try:
+    TELEGRAM_CHAT_ID: int | str = int(TELEGRAM_CHAT_ID_RAW)
+except (TypeError, ValueError):
+    TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID_RAW
+TELEGRAM_ACTIVITY_TYPES = {
+    item.strip().lower()
+    for item in str(
+        OPTIONS.get(
+            "telegram_activity_types",
+            "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping",
+        )
+        or ""
+    ).split(",")
     if item.strip()
 }
 ALERTS_CONFIG = {
@@ -161,7 +199,8 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 
 http_client: httpx.AsyncClient | None = None
 ha_client: httpx.AsyncClient | None = None
-active_alert_keys: set[str] = set()
+active_alerts: dict[str, dict] = {}
+child_name_cache: dict[int, str] = {}
 
 
 @asynccontextmanager
@@ -189,7 +228,7 @@ async def lifespan(app: FastAPI):
     if (
         ALERTS_CONFIG.get("enabled")
         and SUPERVISOR_TOKEN
-        and (HOME_ASSISTANT_ALERT_NOTIFICATIONS or MOBILE_NOTIFY_SERVICE or ALEXA_NOTIFY_SERVICE)
+        and (HOME_ASSISTANT_ALERT_NOTIFICATIONS or MOBILE_NOTIFY_SERVICES or ALEXA_NOTIFY_SERVICE)
         and not DEMO_MODE
     ):
         alert_task = asyncio.create_task(_alert_monitor_loop())
@@ -259,6 +298,58 @@ async def _safe_state(entity_id: str) -> dict | None:
         return await _get_ha_state(entity_id)
     except HTTPException:
         return None
+
+
+def _number_or_none(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _active_diaper_stock(child_id: int) -> dict:
+    size_entity = DIAPER_SIZE_ENTITIES.get(child_id, "")
+    room_stock_entity = ROOM_ENTITIES.get(child_id, {}).get("diaper_stock_entity", "")
+    size_state, grocy_state = await asyncio.gather(
+        _safe_state(size_entity),
+        _safe_state(GROCY_STOCK_ENTITY),
+    )
+    size = str(size_state.get("state") or "").strip() if size_state else ""
+    product_id = DIAPER_PRODUCT_IDS.get(size)
+
+    if grocy_state and product_id:
+        attributes = grocy_state.get("attributes", {}) or {}
+        if not attributes.get("error"):
+            products = attributes.get("products", [])
+            if isinstance(products, list):
+                total = 0.0
+                for item in products:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        item_product_id = int(item.get("product_id") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if item_product_id == product_id:
+                        total += _number_or_none(item.get("amount")) or 0.0
+                return {
+                    "available": True,
+                    "stock": total,
+                    "size": size,
+                    "product_id": product_id,
+                    "source": GROCY_STOCK_ENTITY,
+                }
+
+    # Compatibility fallback for a dedicated stock sensor configured in room_entities.
+    fallback_state = await _safe_state(room_stock_entity) if room_stock_entity else None
+    fallback_stock = _number_or_none(fallback_state.get("state")) if fallback_state else None
+    return {
+        "available": fallback_stock is not None,
+        "stock": fallback_stock,
+        "size": size,
+        "product_id": product_id,
+        "source": room_stock_entity,
+    }
 
 
 def _parse_datetime(value) -> datetime | None:
@@ -348,6 +439,277 @@ def _notification_id(key: str) -> str:
     return f"baby_buddy_{safe}"[:180]
 
 
+
+
+def _coerce_child_id(value) -> int:
+    if isinstance(value, dict):
+        value = value.get("id")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _child_name(child_id: int) -> str:
+    if child_id <= 0:
+        return "Bollito"
+    if child_id in child_name_cache:
+        return child_name_cache[child_id]
+    try:
+        response = await http_client.get(f"/api/children/{child_id}/")
+        if response.status_code < 400:
+            payload = response.json()
+            if isinstance(payload, dict):
+                name = str(payload.get("first_name") or f"Bebé {child_id}").strip()
+                child_name_cache[child_id] = name
+                return name
+    except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return f"Bebé {child_id}"
+
+
+def _clock_text(*values) -> str:
+    for value in values:
+        parsed = _parse_datetime(value)
+        if parsed:
+            return parsed.strftime("%H:%M")
+    return datetime.now().astimezone().strftime("%H:%M")
+
+
+def _duration_seconds(start, end) -> int:
+    start_dt = _parse_datetime(start)
+    end_dt = _parse_datetime(end)
+    if not start_dt or not end_dt:
+        return 0
+    return max(0, int((end_dt - start_dt).total_seconds()))
+
+
+def _duration_text(start, end) -> str:
+    seconds = _duration_seconds(start, end)
+    if seconds <= 0:
+        return ""
+    minutes = max(1, round(seconds / 60))
+    hours, remainder = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {remainder} min" if remainder else f"{hours} h"
+    return f"{minutes} min"
+
+
+def _human_feeding_type(value) -> str:
+    labels = {
+        "breast milk": "leche materna",
+        "formula": "fórmula",
+        "fortified breast milk": "leche materna enriquecida",
+        "solid food": "sólidos",
+    }
+    text = str(value or "").strip().lower()
+    return labels.get(text, text)
+
+
+def _human_feeding_method(value) -> str:
+    labels = {
+        "bottle": "biberón",
+        "left breast": "pecho izquierdo",
+        "right breast": "pecho derecho",
+        "both breasts": "ambos pechos",
+        "parent fed": "alimentado por adulto",
+        "self fed": "come solo",
+    }
+    text = str(value or "").strip().lower()
+    return labels.get(text, text)
+
+
+def _timer_kind(name: str) -> tuple[str, str]:
+    value = str(name or "").strip().lower()
+    if "sleep" in value or "sueño" in value or "sueno" in value or "siesta" in value:
+        return "sleep", "el sueño"
+    if "tummy" in value or "boca abajo" in value:
+        return "tummy", "el tiempo boca abajo"
+    if "feed" in value or "toma" in value:
+        return "feeding", "una toma"
+    return "timer", f"la actividad «{name or 'Temporizador'}»"
+
+
+def _entry_child_id(payload: dict, result: dict) -> int:
+    for source in (result, payload):
+        child_id = _coerce_child_id(source.get("child"))
+        if child_id:
+            return child_id
+    return 0
+
+
+def _message_parts(parts: list[str]) -> str:
+    return " · ".join(str(part).strip() for part in parts if str(part or "").strip()) + "."
+
+
+async def _send_telegram_activity(message: str):
+    if not (
+        TELEGRAM_ACTIVITY_NOTIFICATIONS
+        and TELEGRAM_CHAT_ID not in ("", 0)
+        and SUPERVISOR_TOKEN
+        and message
+    ):
+        return
+    try:
+        await _call_ha_service(
+            "telegram_bot.send_message",
+            {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "message": message,
+                "parse_mode": "plain_text",
+                "message_tag": "baby_buddy_app",
+            },
+        )
+    except HTTPException as exc:
+        logger.warning("No se pudo enviar el aviso de Telegram de Baby Buddy: %s", exc.detail)
+    except Exception as exc:  # Never break a Baby Buddy write because Telegram failed.
+        logger.warning("Error inesperado enviando Telegram de Baby Buddy: %s", exc)
+
+
+async def _notify_created_entry(resource: str, payload: dict, result: dict):
+    resource = resource.strip("/").split("/", 1)[0]
+    type_map = {
+        "timers": "timer",
+        "feedings": "feeding",
+        "sleep": "sleep",
+        "changes": "diaper",
+        "tummy-times": "tummy",
+        "temperature": "temperature",
+        "weight": "weight",
+        "height": "height",
+        "notes": "note",
+        "pumping": "pumping",
+    }
+    notification_type = type_map.get(resource)
+    if not notification_type or notification_type not in TELEGRAM_ACTIVITY_TYPES:
+        return
+
+    child_id = _entry_child_id(payload, result)
+    child_name = await _child_name(child_id)
+    combined = {**payload, **result}
+    message = ""
+
+    if resource == "timers":
+        timer_name = str(combined.get("name") or "Temporizador")
+        timer_type, activity_text = _timer_kind(timer_name)
+        if timer_type not in TELEGRAM_ACTIVITY_TYPES and "timer" not in TELEGRAM_ACTIVITY_TYPES:
+            return
+        icon = {"feeding": "🍼", "sleep": "😴", "tummy": "🌞"}.get(timer_type, "▶️")
+        message = _message_parts([
+            f"{icon} Se ha iniciado {activity_text} de {child_name}",
+            _clock_text(combined.get("start")),
+        ])
+
+    elif resource == "feedings":
+        finished_timer = payload.get("timer") not in (None, "", 0, False)
+        parts = [
+            f"{'✅ Ha terminado' if finished_timer else '🍼 Se ha registrado'} una toma de {child_name}"
+        ]
+        amount = combined.get("amount")
+        try:
+            amount_value = float(amount) if amount not in (None, "") else 0
+        except (TypeError, ValueError):
+            amount_value = 0
+        if amount_value > 0:
+            parts.append(f"{amount_value:g} ml")
+        feeding_type = _human_feeding_type(combined.get("type"))
+        method = _human_feeding_method(combined.get("method"))
+        if feeding_type:
+            parts.append(feeding_type)
+        if method:
+            parts.append(method)
+        duration = _duration_text(combined.get("start"), combined.get("end"))
+        if duration:
+            parts.append(duration)
+        parts.append(_clock_text(combined.get("end"), combined.get("start")))
+        message = _message_parts(parts)
+
+    elif resource == "sleep":
+        finished_timer = payload.get("timer") not in (None, "", 0, False)
+        is_nap = bool(combined.get("nap"))
+        activity = "la siesta" if is_nap else "el sueño"
+        icon = "☀️" if finished_timer else "😴"
+        verb = "Ha terminado" if finished_timer else "Se ha registrado"
+        parts = [f"{icon} {verb} {activity} de {child_name}"]
+        duration = _duration_text(combined.get("start"), combined.get("end"))
+        if duration:
+            parts.append(duration)
+        parts.append(_clock_text(combined.get("end"), combined.get("start")))
+        message = _message_parts(parts)
+
+    elif resource == "tummy-times":
+        finished_timer = payload.get("timer") not in (None, "", 0, False)
+        verb = "Ha terminado" if finished_timer else "Se ha registrado"
+        parts = [f"🌞 {verb} el tiempo boca abajo de {child_name}"]
+        duration = _duration_text(combined.get("start"), combined.get("end"))
+        if duration:
+            parts.append(duration)
+        parts.append(_clock_text(combined.get("end"), combined.get("start")))
+        message = _message_parts(parts)
+
+    elif resource == "changes":
+        wet = bool(combined.get("wet"))
+        solid = bool(combined.get("solid"))
+        if wet and solid:
+            contents = "pis y caca"
+        elif wet:
+            contents = "pis"
+        elif solid:
+            contents = "caca"
+        else:
+            contents = "sin contenido indicado"
+        message = _message_parts([
+            f"🧷 Se ha cambiado el pañal de {child_name}",
+            contents,
+            _clock_text(combined.get("time")),
+        ])
+
+    elif resource == "temperature":
+        value = combined.get("temperature")
+        message = _message_parts([
+            f"🌡 Se ha registrado la temperatura de {child_name}",
+            f"{value} °C" if value not in (None, "") else "",
+            _clock_text(combined.get("time")),
+        ])
+
+    elif resource == "weight":
+        value = combined.get("weight")
+        message = _message_parts([
+            f"⚖️ Se ha registrado el peso de {child_name}",
+            f"{value} kg" if value not in (None, "") else "",
+            _clock_text(combined.get("time")),
+        ])
+
+    elif resource == "height":
+        value = combined.get("height")
+        message = _message_parts([
+            f"📏 Se ha registrado la altura de {child_name}",
+            f"{value} cm" if value not in (None, "") else "",
+            _clock_text(combined.get("time")),
+        ])
+
+    elif resource == "notes":
+        note_text = str(combined.get("note") or combined.get("text") or "").strip()
+        if len(note_text) > 120:
+            note_text = note_text[:117].rstrip() + "…"
+        message = _message_parts([
+            f"📝 Se ha añadido una nota de {child_name}",
+            note_text,
+            _clock_text(combined.get("time")),
+        ])
+
+    elif resource == "pumping":
+        amount = combined.get("amount")
+        message = _message_parts([
+            f"🥛 Se ha registrado una extracción para {child_name}",
+            f"{amount} ml" if amount not in (None, "") else "",
+            _clock_text(combined.get("end"), combined.get("start")),
+        ])
+
+    if message:
+        await _send_telegram_activity(message)
+
+
 async def _send_alert(alert: dict):
     notification_id = _notification_id(alert["key"])
     title = alert.get("title", "Aviso de Baby Buddy")
@@ -366,10 +728,10 @@ async def _send_alert(alert: dict):
         except HTTPException:
             pass
 
-    if MOBILE_NOTIFY_SERVICE:
+    for mobile_service in MOBILE_NOTIFY_SERVICES:
         try:
             await _call_ha_service(
-                MOBILE_NOTIFY_SERVICE,
+                mobile_service,
                 {
                     "title": title,
                     "message": message,
@@ -457,9 +819,9 @@ async def _collect_alerts() -> list[dict]:
 
         room_config = ROOM_ENTITIES.get(child_id, {})
         if room_config:
-            temp_state, stock_state = await asyncio.gather(
+            temp_state, diaper_stock = await asyncio.gather(
                 _safe_state(room_config.get("temperature_entity", "")),
-                _safe_state(room_config.get("diaper_stock_entity", "")),
+                _active_diaper_stock(child_id),
             )
             try:
                 temperature = float(temp_state.get("state")) if temp_state else None
@@ -483,40 +845,51 @@ async def _collect_alerts() -> list[dict]:
                         "alexa_message": f"Aviso. La habitación de {child_name} está caliente, a {temperature:.1f} grados.",
                     })
 
-            try:
-                stock = float(stock_state.get("state")) if stock_state else None
-            except (TypeError, ValueError):
-                stock = None
+            stock = diaper_stock.get("stock") if diaper_stock.get("available") else None
+            size = diaper_stock.get("size") or "talla activa"
             if stock is not None and stock <= ALERTS_CONFIG["diaper_stock_low_threshold"]:
                 alerts.append({
                     "key": f"diaper_stock:{child_id}",
                     "type": "diaper_stock",
                     "title": f"Pocos pañales · {child_name}",
-                    "message": f"Quedan {stock:g} pañales de la talla activa para {child_name}.",
+                    "message": f"Quedan {stock:g} pañales de {size} para {child_name}.",
                 })
 
     return alerts
 
 
 async def _alert_monitor_loop():
-    global active_alert_keys
+    global active_alerts
     await asyncio.sleep(8)
     while True:
         try:
             alerts = await _collect_alerts()
             current = {alert["key"]: alert for alert in alerts}
-            new_keys = set(current) - active_alert_keys
-            resolved_keys = active_alert_keys - set(current)
-            for key in sorted(new_keys):
+            new_or_changed = {
+                key
+                for key, alert in current.items()
+                if key not in active_alerts
+                or active_alerts[key].get("title") != alert.get("title")
+                or active_alerts[key].get("message") != alert.get("message")
+            }
+            resolved_keys = set(active_alerts) - set(current)
+            for key in sorted(new_or_changed):
                 await _send_alert(current[key])
             for key in sorted(resolved_keys):
                 await _dismiss_alert(key)
-            active_alert_keys = set(current)
+
+            # Clear a stale diaper warning left by an earlier app restart or size change.
+            for child_id in DIAPER_SIZE_ENTITIES:
+                key = f"diaper_stock:{child_id}"
+                if key not in current:
+                    await _dismiss_alert(key)
+
+            active_alerts = current
         except asyncio.CancelledError:
             raise
         except Exception:
             # Alerts are supplementary and must never stop the dashboard.
-            pass
+            logger.exception("No se pudieron actualizar los avisos de Baby Buddy")
         await asyncio.sleep(max(30, int(REFRESH_INTERVAL)))
 
 
@@ -533,11 +906,16 @@ async def get_config():
         "alerts": ALERTS_CONFIG,
         "calendar_days_ahead": CALENDAR_DAYS_AHEAD,
         "calendar_max_events": CALENDAR_MAX_EVENTS,
+        "grocy_stock_entity": GROCY_STOCK_ENTITY,
         "notifications": {
             "home_assistant": HOME_ASSISTANT_ALERT_NOTIFICATIONS,
             "mobile_service": MOBILE_NOTIFY_SERVICE,
+            "mobile_services": MOBILE_NOTIFY_SERVICES,
             "alexa_service": ALEXA_NOTIFY_SERVICE,
             "alexa_alert_types": sorted(ALEXA_ALERT_TYPES),
+            "telegram_activity_notifications": TELEGRAM_ACTIVITY_NOTIFICATIONS,
+            "telegram_chat_id": TELEGRAM_CHAT_ID_RAW,
+            "telegram_activity_types": sorted(TELEGRAM_ACTIVITY_TYPES),
         },
     }
 
@@ -604,21 +982,26 @@ async def set_diaper_size(child_id: int, request: Request):
 @app.get("/api/room-status")
 async def get_room_statuses():
     rooms: dict[str, dict] = {}
-    for child_id, config in ROOM_ENTITIES.items():
-        temp, humidity, light, window, stock = await asyncio.gather(
+    child_ids = set(ROOM_ENTITIES) | set(DIAPER_SIZE_ENTITIES)
+    for child_id in child_ids:
+        config = ROOM_ENTITIES.get(child_id, {})
+        temp, humidity, light, window, diaper_stock = await asyncio.gather(
             _safe_state(config.get("temperature_entity", "")),
             _safe_state(config.get("humidity_entity", "")),
             _safe_state(config.get("light_entity", "")),
             _safe_state(config.get("window_entity", "")),
-            _safe_state(config.get("diaper_stock_entity", "")),
+            _active_diaper_stock(child_id),
         )
         rooms[str(child_id)] = {
-            "configured": True,
+            "configured": bool(config),
             "temperature": temp.get("state") if temp else None,
             "humidity": humidity.get("state") if humidity else None,
             "light": light.get("state") if light else None,
             "window": window.get("state") if window else None,
-            "diaper_stock": stock.get("state") if stock else None,
+            "diaper_stock": diaper_stock.get("stock"),
+            "diaper_stock_available": diaper_stock.get("available", False),
+            "diaper_size": diaper_stock.get("size", ""),
+            "diaper_product_id": diaper_stock.get("product_id"),
             "has_light": bool(config.get("light_entity")),
             "has_camera": bool(config.get("camera_entity")),
             "camera_url": f"./api/room-camera/{child_id}" if config.get("camera_entity") else None,
@@ -659,6 +1042,63 @@ async def get_calendar_events():
                 "error": exc.detail,
             }
     return {"available": bool(SUPERVISOR_TOKEN), "calendars": calendars}
+
+
+@app.post("/api/calendar-events/{child_id}")
+async def create_calendar_event(child_id: int, request: Request):
+    entity_id = CALENDAR_ENTITIES.get(child_id)
+    if not entity_id:
+        raise HTTPException(404, f"No calendar configured for child {child_id}")
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+
+    summary = str(payload.get("summary") or "").strip()
+    start_date_time = str(payload.get("start_date_time") or "").strip()
+    end_date_time = str(payload.get("end_date_time") or "").strip()
+    location = str(payload.get("location") or "").strip()
+    description = str(payload.get("description") or "").strip()
+
+    if not summary:
+        raise HTTPException(400, "Missing event summary")
+    if not start_date_time or not end_date_time:
+        raise HTTPException(400, "Missing event start or end")
+    try:
+        start_value = datetime.fromisoformat(start_date_time.replace("Z", "+00:00"))
+        end_value = datetime.fromisoformat(end_date_time.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "Invalid event date/time")
+    if end_value <= start_value:
+        raise HTTPException(400, "Event end must be after its start")
+
+    service_data = {
+        "entity_id": entity_id,
+        "summary": summary,
+        "start_date_time": start_date_time,
+        "end_date_time": end_date_time,
+    }
+    if location:
+        service_data["location"] = location
+    if description:
+        service_data["description"] = description
+
+    try:
+        await _call_ha_service("google.create_event", service_data)
+    except HTTPException as google_error:
+        # Newer generic calendar entities may expose calendar.create_event.
+        try:
+            await _call_ha_service("calendar.create_event", service_data)
+        except HTTPException:
+            raise google_error
+    return {
+        "created": True,
+        "entity_id": entity_id,
+        "summary": summary,
+        "start": start_date_time,
+        "end": end_date_time,
+        "location": location,
+    }
 
 
 @app.post("/api/room-light/{child_id}/toggle")
@@ -795,9 +1235,17 @@ async def proxy_baby_buddy(path: str, request: Request):
     target_url = f"/api/{path}"
     params = dict(request.query_params)
     body = None
+    request_payload: dict = {}
     content_type = request.headers.get("content-type", "")
     if request.method in ("POST", "PATCH", "PUT"):
         body = await request.body()
+        if body and "application/json" in content_type:
+            try:
+                decoded = json.loads(body)
+                if isinstance(decoded, dict):
+                    request_payload = decoded
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                request_payload = {}
     try:
         headers = {}
         if body and "application/json" in content_type:
@@ -813,6 +1261,21 @@ async def proxy_baby_buddy(path: str, request: Request):
         raise HTTPException(502, "Cannot connect to Baby Buddy")
     except httpx.TimeoutException:
         raise HTTPException(504, "Baby Buddy request timed out")
+    if (
+        request.method == "POST"
+        and 200 <= response.status_code < 300
+        and TELEGRAM_ACTIVITY_NOTIFICATIONS
+        and TELEGRAM_CHAT_ID not in ("", 0)
+    ):
+        try:
+            response_payload = response.json()
+        except json.JSONDecodeError:
+            response_payload = {}
+        if isinstance(response_payload, dict):
+            asyncio.create_task(
+                _notify_created_entry(path, request_payload, response_payload)
+            )
+
     excluded_headers = {"transfer-encoding", "content-encoding", "content-length", "connection", "server"}
     response_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded_headers}
     return Response(content=response.content, status_code=response.status_code, headers=response_headers)

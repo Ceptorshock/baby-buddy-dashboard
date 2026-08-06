@@ -601,3 +601,14 @@ body {
   .timer-bar { align-items:flex-start; gap:10px; flex-direction:column; }
   .undo-toast { bottom:88px; }
 }
+
+
+/* ES14: calendar creation and compact controls */
+.calendar-actions-row { display:flex; justify-content:flex-end; margin-bottom:12px; }
+.calendar-add-btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #8B5CF650; background:#8B5CF614; color:#C4B5FD; border-radius:10px; padding:8px 11px; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
+.calendar-add-btn:hover { background:#8B5CF624; }
+.calendar-add-btn svg { width:15px; height:15px; }
+.calendar-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.calendar-notes-input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; font-family:inherit; outline:none; resize:vertical; box-sizing:border-box; }
+.calendar-form-error { margin:-2px 0 12px; padding:9px 11px; border-radius:9px; border:1px solid #EF444450; background:#EF444412; color:#FCA5A5; font-size:12px; }
+@media (max-width: 440px) { .calendar-form-grid { grid-template-columns:1fr; gap:0; } }

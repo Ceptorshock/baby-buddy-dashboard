@@ -178,11 +178,12 @@ export function useBabyData() {
         ...previous,
         [String(childId)]: updated,
       }));
+      await fetchRoomStatuses();
       return updated;
     } finally {
       setDiaperSizeSaving(false);
     }
-  }, []);
+  }, [fetchRoomStatuses]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -334,6 +335,7 @@ export function useBabyData() {
     toggleRoomLight,
     calendarStatuses,
     calendarStatus: child ? calendarStatuses[String(child.id)] : null,
+    refreshCalendars: fetchCalendarStatuses,
     alertsConfig,
     refetch: fetchAll,
   };

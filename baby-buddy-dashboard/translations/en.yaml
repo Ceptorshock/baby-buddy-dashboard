@@ -24,3 +24,20 @@ configuration:
       entity_id:
         name: Size entity
         description: "Home Assistant input_select entity, for example input_select.bollito_talla_panal"
+  mobile_notify_services:
+    name: Phones for alerts
+    description: "Comma-separated mobile notify actions"
+  grocy_stock_entity:
+    name: Grocy inventory entity
+    description: "Sensor with the products attribute used for the active diaper size"
+  calendar_entities:
+    name: Calendar per child
+    description: "Maps each Baby Buddy child_id to a calendar entity"
+    fields:
+      child_id:
+        name: Child ID
+        description: "Internal Baby Buddy child ID"
+      entity_id:
+        name: Calendar entity
+        description: "For example calendar.bollito"
+

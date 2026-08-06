@@ -152,6 +152,18 @@ export const api = {
     }
     return response.json();
   },
+  createCalendarEvent: async (childId, data) => {
+    const response = await fetch(`${CALENDAR_EVENTS_PATH}/${childId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Calendar API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
 
   // Undo a newly-created Baby Buddy entry. Diapers also request stock restoration.
   undoEntry: async (entry) => {
