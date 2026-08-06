@@ -4,6 +4,8 @@ const DIAPER_SIZES_PATH = "./api/diaper-sizes";
 const ROOM_STATUS_PATH = "./api/room-status";
 const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
+const CURRENT_USER_PATH = "./api/current-user";
+const AUDIT_PATH = "./api/audit";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -84,6 +86,13 @@ export const api = {
     request("height/", { method: "POST", body: JSON.stringify(data) }),
   updateHeight: (id, data) =>
     request(`height/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  // Medication (Baby Buddy 2.9+)
+  getMedication: (params) => request(`medication/${qs(params)}`),
+  createMedication: (data) =>
+    request("medication/", { method: "POST", body: JSON.stringify(data) }),
+  updateMedication: (id, data) =>
+    request(`medication/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
 
   // Pumping
   getPumping: (params) => request(`pumping/${qs(params)}`),
@@ -218,6 +227,20 @@ export const api = {
       const text = await response.text().catch(() => "");
       throw new Error(`Undo API error ${response.status}: ${text}`);
     }
+    return response.json();
+  },
+
+  getCurrentUser: async () => {
+    const response = await fetch(CURRENT_USER_PATH);
+    if (!response.ok) throw new Error(`User API error ${response.status}`);
+    return response.json();
+  },
+  getAudit: async (childId, limit = 200) => {
+    const params = new URLSearchParams();
+    if (childId) params.set("child_id", childId);
+    params.set("limit", limit);
+    const response = await fetch(`${AUDIT_PATH}?${params.toString()}`);
+    if (!response.ok) throw new Error(`Audit API error ${response.status}`);
     return response.json();
   },
 

@@ -37,6 +37,10 @@ export function useBabyData() {
   const [monthlySleep, setMonthlySleep] = useState([]);
   const [notes, setNotes] = useState([]);
   const [timers, setTimers] = useState([]);
+  const [medications, setMedications] = useState([]);
+  const [auditEntries, setAuditEntries] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [nightModeConfig, setNightModeConfig] = useState({ enabled: true, start: "22:00", end: "07:00" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastSync, setLastSync] = useState(null);
@@ -87,6 +91,8 @@ export function useBabyData() {
         notesRes,
         monthlyFeedingsRes,
         monthlySleepRes,
+        medicationRes,
+        auditRes,
       ] = await Promise.all([
         api.getFeedings({ child: c, start_min: todayMin, start_max: todayMax, limit: 100, ordering: "-start" }),
         api.getFeedings({ child: c, start_min: weekMin, limit: 200, ordering: "-start" }),
@@ -103,6 +109,8 @@ export function useBabyData() {
         api.getNotes({ child: c, limit: 20, ordering: "-time" }),
         api.getFeedings({ child: c, start_min: monthMin, limit: 500, ordering: "-start" }),
         api.getSleep({ child: c, start_min: monthMin, limit: 500, ordering: "-start" }),
+        api.getMedication({ child: c, limit: 50, ordering: "-time" }).catch(() => ({ results: [] })),
+        api.getAudit(c, 250).catch(() => ({ results: [] })),
       ]);
 
       setFeedings(feedingsRes.results || []);
@@ -120,6 +128,8 @@ export function useBabyData() {
       setNotes(notesRes.results || []);
       setMonthlyFeedings(monthlyFeedingsRes.results || []);
       setMonthlySleep(monthlySleepRes.results || []);
+      setMedications(medicationRes.results || []);
+      setAuditEntries(auditRes.results || []);
       setLastSync(new Date());
       setError(null);
     } catch (err) {
@@ -257,6 +267,8 @@ export function useBabyData() {
     setWeights(mock.weights);
     setHeights(mock.heights);
     setTimers(mock.timers);
+    setMedications([]);
+    setAuditEntries([]);
     setNotes(mock.notes);
     setMonthlyFeedings(mock.monthlyFeedings);
     setMonthlySleep(mock.monthlySleep);
@@ -284,6 +296,8 @@ export function useBabyData() {
       setWeights(mock.weights);
       setHeights(mock.heights);
       setTimers(mock.timers);
+      setMedications([]);
+      setAuditEntries([]);
       setNotes(mock.notes);
       setMonthlyFeedings(mock.monthlyFeedings);
       setMonthlySleep(mock.monthlySleep);
@@ -299,6 +313,8 @@ export function useBabyData() {
       .then((cfg) => {
         if (cfg.unit_system) setUnitSystem(cfg.unit_system);
         if (cfg.alerts) setAlertsConfig(cfg.alerts);
+        if (cfg.night_mode) setNightModeConfig(cfg.night_mode);
+        api.getCurrentUser().then(setCurrentUser).catch(() => setCurrentUser({ display_name: "Acceso directo", via_ingress: false }));
         const configuredDefault = Number(cfg.default_child_id || 0);
         defaultChildIdRef.current = configuredDefault > 0 ? configuredDefault : null;
         if (cfg.demo_mode) {
@@ -311,6 +327,7 @@ export function useBabyData() {
         }
       })
       .catch(() => {
+        api.getCurrentUser().then(setCurrentUser).catch(() => setCurrentUser({ display_name: "Acceso directo", via_ingress: false }));
         fetchAll();
         intervalRef.current = setInterval(fetchAll, 30000);
       });
@@ -337,6 +354,10 @@ export function useBabyData() {
     monthlySleep,
     notes,
     timers,
+    medications,
+    auditEntries,
+    currentUser,
+    nightModeConfig,
     loading,
     error,
     lastSync,

@@ -8,6 +8,7 @@ import { getAge, formatElapsed } from "./utils/formatters";
 import OverviewTab from "./tabs/OverviewTab";
 import GrowthTab from "./tabs/GrowthTab";
 import NotesTab from "./tabs/NotesTab";
+import AuditTab from "./tabs/AuditTab";
 import FeedingForm from "./components/forms/FeedingForm";
 import SleepForm from "./components/forms/SleepForm";
 import DiaperForm from "./components/forms/DiaperForm";
@@ -17,6 +18,7 @@ import NoteForm from "./components/forms/NoteForm";
 import WeightForm from "./components/forms/WeightForm";
 import HeightForm from "./components/forms/HeightForm";
 import CalendarForm from "./components/forms/CalendarForm";
+import MedicationForm from "./components/forms/MedicationForm";
 import TimerButton from "./components/TimerButton";
 import NowPanel from "./components/NowPanel";
 import AlertsPanel from "./components/AlertsPanel";
@@ -25,6 +27,8 @@ import CalendarCard from "./components/CalendarCard";
 import CalendarManagerModal from "./components/CalendarManagerModal";
 import CalendarDeleteModal from "./components/CalendarDeleteModal";
 import UndoToast from "./components/UndoToast";
+import MedicationCard from "./components/MedicationCard";
+import NightModePanel from "./components/NightModePanel";
 import { api } from "./api";
 import "./styles.css";
 
@@ -32,6 +36,7 @@ const TABS = [
   { id: "overview", label: "Ahora", icon: <Icons.Activity /> },
   { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
   { id: "notes", label: "Notas", icon: <Icons.StickyNote /> },
+  { id: "audit", label: "Registro", icon: <Icons.History /> },
 ];
 
 const ACTION_GROUPS = [
@@ -41,6 +46,7 @@ const ACTION_GROUPS = [
       { id: "feeding", label: "Toma", icon: <Icons.Bottle />, color: colors.feeding },
       { id: "sleep", label: "Sueño", icon: <Icons.Moon />, color: colors.sleep },
       { id: "diaper", label: "Pañal", icon: <Icons.Droplet />, color: colors.diaper },
+      { id: "medication", label: "Medicamento", icon: <Icons.Pill />, color: colors.medication },
       { id: "tummy", label: "Boca abajo", icon: <Icons.Sun />, color: colors.tummy },
     ],
   },
@@ -87,6 +93,20 @@ function localizeTimerName(name) {
   return name || "Temporizador";
 }
 
+function isWithinNightWindow(now, start = "22:00", end = "07:00") {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const parse = (value) => {
+    const [hours, mins] = String(value || "00:00").split(":").map(Number);
+    return (hours || 0) * 60 + (mins || 0);
+  };
+  const startMinutes = parse(start);
+  const endMinutes = parse(end);
+  if (startMinutes === endMinutes) return true;
+  return startMinutes < endMinutes
+    ? minutes >= startMinutes && minutes < endMinutes
+    : minutes >= startMinutes || minutes < endMinutes;
+}
+
 export default function App() {
   const data = useBabyData();
   const timer = useTimers(data.timers, data.child?.id);
@@ -99,6 +119,8 @@ export default function App() {
   const [undoItem, setUndoItem] = useState(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [undoMessage, setUndoMessage] = useState("");
+  const [nightModeSuppressed, setNightModeSuppressed] = useState(false);
+  const [clockNow, setClockNow] = useState(() => new Date());
   const undoTimeoutRef = useRef(null);
 
   const closeModal = () => setModal(null);
@@ -114,6 +136,17 @@ export default function App() {
   };
 
   useEffect(() => () => clearTimeout(undoTimeoutRef.current), []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setClockNow(new Date()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const inNightWindow = isWithinNightWindow(clockNow, data.nightModeConfig?.start, data.nightModeConfig?.end);
+  useEffect(() => {
+    if (!inNightWindow && nightModeSuppressed) setNightModeSuppressed(false);
+  }, [inNightWindow, nightModeSuppressed]);
+  const nightModeActive = Boolean(data.nightModeConfig?.enabled && inNightWindow && !nightModeSuppressed);
 
   const handleUndo = async () => {
     if (!undoItem) return;
@@ -143,7 +176,16 @@ export default function App() {
 
   return (
     <UnitContext.Provider value={data.unitSystem}>
-    <div className="app">
+    <div className={`app${nightModeActive ? " night-mode-active" : ""}`}>
+      {nightModeActive && (
+        <NightModePanel
+          data={data}
+          timer={timer}
+          onOpenForm={setModal}
+          onCreated={handleFormDone}
+          onDisable={() => setNightModeSuppressed(true)}
+        />
+      )}
       {/* Header */}
       <header className="app-header fade-in">
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -186,6 +228,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {data.currentUser?.display_name && <span className="header-user"><Icons.User /> {data.currentUser.display_name}</span>}
           {data.error && (
             <span className="sync-error">Error de conexión</span>
           )}
@@ -328,6 +371,11 @@ export default function App() {
                 onDeleteEvent={(event) => setModal({ type: "calendar-delete", entry: event })}
               />
             </div>
+          <MedicationCard
+            medications={data.medications}
+            onEditEntry={(type, entry) => setModal({ type, entry })}
+            onAdd={() => setModal({ type: "medication" })}
+          />
           <OverviewTab
             feedings={data.feedings}
             weeklyFeedings={data.weeklyFeedings}
@@ -354,6 +402,9 @@ export default function App() {
             notes={data.notes}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
+        )}
+        {activeTab === "audit" && (
+          <AuditTab entries={data.auditEntries} currentUser={data.currentUser} />
         )}
       </main>
 
@@ -513,6 +564,14 @@ export default function App() {
       )}
       {modal?.type === "note" && (
         <NoteForm
+          childId={data.child?.id}
+          entry={modal.entry}
+          onDone={handleFormDone}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "medication" && (
+        <MedicationForm
           childId={data.child?.id}
           entry={modal.entry}
           onDone={handleFormDone}

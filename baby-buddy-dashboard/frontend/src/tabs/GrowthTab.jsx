@@ -104,9 +104,12 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               {latestWeight ? `${latestWeight.weight} ${units.weight}` : "—"}
             </div>
             {latestWeight && (
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {new Date(latestWeight.date).toLocaleDateString("es-ES")}
-              </div>
+              <>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  {new Date(latestWeight.date).toLocaleDateString("es-ES")}
+                </div>
+                <div className="entry-author">Registrado por {latestWeight._audit?.created_by || "Autor no registrado"}</div>
+              </>
             )}
           </div>
         </div>
@@ -143,9 +146,12 @@ export default function GrowthTab({ weights, heights, monthlyFeedings, monthlySl
               {latestHeight ? `${latestHeight.height} ${units.length}` : "—"}
             </div>
             {latestHeight && (
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                {new Date(latestHeight.date).toLocaleDateString("es-ES")}
-              </div>
+              <>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  {new Date(latestHeight.date).toLocaleDateString("es-ES")}
+                </div>
+                <div className="entry-author">Registrado por {latestHeight._audit?.created_by || "Autor no registrado"}</div>
+              </>
             )}
           </div>
         </div>

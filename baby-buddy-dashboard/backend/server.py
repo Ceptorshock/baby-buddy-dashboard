@@ -3,6 +3,7 @@ import json
 import asyncio
 import logging
 import re
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +25,200 @@ DEFAULT_CHILD_ID = int(os.environ.get("DEFAULT_CHILD_ID", "0") or 0)
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 
 logger = logging.getLogger("baby_buddy_dashboard")
+
+AUDIT_DB_PATH = Path("/data/baby_buddy_dashboard_audit.sqlite3")
+
+
+def _init_audit_db():
+    AUDIT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                user_id TEXT,
+                user_name TEXT,
+                user_display_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                resource TEXT NOT NULL,
+                entry_id TEXT,
+                child_id INTEGER,
+                before_json TEXT,
+                after_json TEXT
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_resource_entry ON audit_log(resource, entry_id, id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_child_time ON audit_log(child_id, timestamp DESC)"
+        )
+        connection.commit()
+
+
+def _request_user(request: Request) -> dict:
+    headers = request.headers
+    user_id = str(headers.get("X-Remote-User-Id", "") or "").strip()
+    user_name = str(headers.get("X-Remote-User-Name", "") or "").strip()
+    display_name = str(headers.get("X-Remote-User-Display-Name", "") or "").strip()
+    if not display_name:
+        display_name = user_name or (f"Usuario {user_id[:8]}" if user_id else "Acceso directo")
+    return {
+        "id": user_id,
+        "name": user_name,
+        "display_name": display_name,
+        "via_ingress": bool(user_id or user_name),
+    }
+
+
+def _json_text(value) -> str | None:
+    if value is None:
+        return None
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return json.dumps({"value": str(value)}, ensure_ascii=False)
+
+
+def _child_id_from_entry(*entries) -> int | None:
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("child")
+        if isinstance(value, dict):
+            value = value.get("id")
+        try:
+            child_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if child_id > 0:
+            return child_id
+    return None
+
+
+def _record_audit(
+    request: Request,
+    action: str,
+    resource: str,
+    entry_id,
+    before=None,
+    after=None,
+    child_id: int | None = None,
+):
+    user = _request_user(request)
+    resolved_child_id = child_id or _child_id_from_entry(after, before)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO audit_log (
+                timestamp, user_id, user_name, user_display_name,
+                action, resource, entry_id, child_id, before_json, after_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                datetime.now(timezone.utc).isoformat(),
+                user["id"],
+                user["name"],
+                user["display_name"],
+                action,
+                resource,
+                str(entry_id) if entry_id not in (None, "") else None,
+                resolved_child_id,
+                _json_text(before),
+                _json_text(after),
+            ),
+        )
+        connection.commit()
+
+
+def _parse_json_text(value):
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _audit_row_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "timestamp": row[1],
+        "user_id": row[2] or "",
+        "user_name": row[3] or "",
+        "user_display_name": row[4] or "Autor no registrado",
+        "action": row[5],
+        "resource": row[6],
+        "entry_id": row[7],
+        "child_id": row[8],
+        "before": _parse_json_text(row[9]),
+        "after": _parse_json_text(row[10]),
+    }
+
+
+def _audit_metadata(resource: str, entry_ids: list[str]) -> dict[str, dict]:
+    clean_ids = [str(value) for value in entry_ids if value not in (None, "")]
+    if not clean_ids:
+        return {}
+    placeholders = ",".join("?" for _ in clean_ids)
+    query = f"""
+        SELECT id, timestamp, user_id, user_name, user_display_name,
+               action, resource, entry_id, child_id, before_json, after_json
+        FROM audit_log
+        WHERE resource = ? AND entry_id IN ({placeholders})
+        ORDER BY id ASC
+    """
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(query, [resource, *clean_ids]).fetchall()
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        item = _audit_row_to_dict(row)
+        grouped.setdefault(str(item["entry_id"]), []).append(item)
+    result = {}
+    for entry_id, history in grouped.items():
+        created = next((item for item in history if item["action"] == "create"), None)
+        latest = history[-1]
+        edits = sum(1 for item in history if item["action"] in ("update", "delete", "undo"))
+        result[entry_id] = {
+            "created_by": created["user_display_name"] if created else "Autor no registrado",
+            "created_at": created["timestamp"] if created else None,
+            "updated_by": latest["user_display_name"],
+            "updated_at": latest["timestamp"],
+            "last_action": latest["action"],
+            "edit_count": edits,
+        }
+    return result
+
+
+def _attach_audit(resource: str, payload):
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        entries = [item for item in payload["results"] if isinstance(item, dict)]
+    elif isinstance(payload, dict) and payload.get("id") not in (None, ""):
+        entries = [payload]
+    else:
+        return payload
+    metadata = _audit_metadata(resource, [entry.get("id") for entry in entries])
+    for entry in entries:
+        entry["_audit"] = metadata.get(
+            str(entry.get("id")),
+            {
+                "created_by": "Autor no registrado",
+                "created_at": None,
+                "updated_by": None,
+                "updated_at": None,
+                "last_action": None,
+                "edit_count": 0,
+            },
+        )
+    return payload
+
+
+def _path_resource_and_id(path: str) -> tuple[str, str | None]:
+    parts = [part for part in path.strip("/").split("/") if part]
+    return (parts[0] if parts else "", parts[1] if len(parts) > 1 else None)
 
 
 def _load_options() -> dict:
@@ -214,7 +409,7 @@ TELEGRAM_ACTIVITY_TYPES = {
     for item in str(
         OPTIONS.get(
             "telegram_activity_types",
-            "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping",
+            "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping,medication",
         )
         or ""
     ).split(",")
@@ -227,6 +422,11 @@ ALERTS_CONFIG = {
     "room_temp_min": float(OPTIONS.get("room_temp_min", 18) or 18),
     "room_temp_max": float(OPTIONS.get("room_temp_max", 27) or 27),
     "diaper_stock_low_threshold": int(OPTIONS.get("diaper_stock_low_threshold", 10) or 10),
+}
+NIGHT_MODE_CONFIG = {
+    "enabled": bool(OPTIONS.get("night_mode_enabled", True)),
+    "start": str(OPTIONS.get("night_mode_start", "22:00") or "22:00"),
+    "end": str(OPTIONS.get("night_mode_end", "07:00") or "07:00"),
 }
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -242,6 +442,7 @@ child_name_cache: dict[int, str] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client, ha_client
+    _init_audit_db()
     http_client = httpx.AsyncClient(
         base_url=BABY_BUDDY_URL,
         headers={
@@ -876,6 +1077,7 @@ async def _notify_created_entry(resource: str, payload: dict, result: dict):
         "height": "height",
         "notes": "note",
         "pumping": "pumping",
+        "medication": "medication",
     }
     notification_type = type_map.get(resource)
     if not notification_type or notification_type not in TELEGRAM_ACTIVITY_TYPES:
@@ -1001,6 +1203,21 @@ async def _notify_created_entry(resource: str, payload: dict, result: dict):
             f"🥛 Se ha registrado una extracción para {child_name}",
             f"{amount} ml" if amount not in (None, "") else "",
             _clock_text(combined.get("end"), combined.get("start")),
+        ])
+
+    elif resource == "medication":
+        name = str(combined.get("name") or "Medicamento").strip()
+        dosage = combined.get("dosage")
+        unit = str(combined.get("dosage_unit") or "").strip()
+        dose_text = ""
+        if dosage not in (None, ""):
+            dose_text = f"{dosage} {unit}".strip()
+        interval = str(combined.get("next_dose_interval") or "").strip()
+        message = _message_parts([
+            f"💊 Se ha administrado {name} a {child_name}",
+            dose_text,
+            f"Próxima pauta: {interval}" if interval else "",
+            _clock_text(combined.get("time")),
         ])
 
     if message:
@@ -1201,6 +1418,7 @@ async def get_config():
         "unit_system": UNIT_SYSTEM,
         "default_child_id": DEFAULT_CHILD_ID,
         "alerts": ALERTS_CONFIG,
+        "night_mode": NIGHT_MODE_CONFIG,
         "calendar_days_ahead": CALENDAR_DAYS_AHEAD,
         "calendar_max_events": CALENDAR_MAX_EVENTS,
         "calendar_full_max_events": CALENDAR_FULL_MAX_EVENTS,
@@ -1217,6 +1435,30 @@ async def get_config():
             "telegram_activity_types": sorted(TELEGRAM_ACTIVITY_TYPES),
         },
     }
+
+
+@app.get("/api/current-user")
+async def get_current_user(request: Request):
+    return _request_user(request)
+
+
+@app.get("/api/audit")
+async def get_audit(child_id: int | None = None, limit: int = 200):
+    limit = max(1, min(int(limit or 200), 1000))
+    query = """
+        SELECT id, timestamp, user_id, user_name, user_display_name,
+               action, resource, entry_id, child_id, before_json, after_json
+        FROM audit_log
+    """
+    params: list = []
+    if child_id:
+        query += " WHERE child_id = ?"
+        params.append(child_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(query, params).fetchall()
+    return {"results": [_audit_row_to_dict(row) for row in rows]}
 
 
 @app.get("/api/diaper-sizes")
@@ -1550,6 +1792,7 @@ UNDO_ENDPOINTS = {
     "weight": "weight",
     "height": "height",
     "note": "notes",
+    "medication": "medication",
 }
 
 
@@ -1566,7 +1809,10 @@ async def undo_entry(request: Request):
         raise HTTPException(400, "Invalid entry type or id")
 
     try:
-        delete_response = await http_client.delete(f"/api/{resource}/{int(entry_id)}/")
+        numeric_entry_id = int(entry_id)
+        before_response = await http_client.get(f"/api/{resource}/{numeric_entry_id}/")
+        before_payload = before_response.json() if before_response.status_code < 400 else None
+        delete_response = await http_client.delete(f"/api/{resource}/{numeric_entry_id}/")
     except (TypeError, ValueError):
         raise HTTPException(400, "Invalid entry id")
     except httpx.ConnectError:
@@ -1576,6 +1822,7 @@ async def undo_entry(request: Request):
     if delete_response.status_code >= 400:
         raise HTTPException(delete_response.status_code, delete_response.text)
 
+    _record_audit(request, "undo", resource, entry_id, before=before_payload, after=None)
     result = {"deleted": True, "stock_restored": None, "warning": None}
     if entry_type == "diaper":
         diaper_size = str(payload.get("diaper_size", "") or "").strip()
@@ -1643,6 +1890,9 @@ async def proxy_baby_buddy(path: str, request: Request):
     body = None
     request_payload: dict = {}
     content_type = request.headers.get("content-type", "")
+    resource, entry_id = _path_resource_and_id(path)
+    before_payload = None
+
     if request.method in ("POST", "PATCH", "PUT"):
         body = await request.body()
         if body and "application/json" in content_type:
@@ -1652,6 +1902,15 @@ async def proxy_baby_buddy(path: str, request: Request):
                     request_payload = decoded
             except (json.JSONDecodeError, UnicodeDecodeError):
                 request_payload = {}
+
+    if request.method in ("PATCH", "PUT", "DELETE") and entry_id:
+        try:
+            before_response = await http_client.get(f"/api/{resource}/{entry_id}/")
+            if before_response.status_code < 400:
+                before_payload = before_response.json()
+        except (httpx.HTTPError, json.JSONDecodeError):
+            before_payload = None
+
     try:
         headers = {}
         if body and "application/json" in content_type:
@@ -1667,31 +1926,38 @@ async def proxy_baby_buddy(path: str, request: Request):
         raise HTTPException(502, "Cannot connect to Baby Buddy")
     except httpx.TimeoutException:
         raise HTTPException(504, "Baby Buddy request timed out")
-    modified_response_payload: dict | None = None
-    if request.method == "POST" and 200 <= response.status_code < 300:
+
+    response_payload = None
+    if response.content and "application/json" in response.headers.get("content-type", ""):
         try:
             response_payload = response.json()
         except json.JSONDecodeError:
-            response_payload = {}
-        if isinstance(response_payload, dict):
-            resource = path.strip("/").split("/", 1)[0]
+            response_payload = None
+
+    if 200 <= response.status_code < 300:
+        if request.method == "POST" and isinstance(response_payload, dict):
+            created_id = response_payload.get("id")
+            _record_audit(request, "create", resource, created_id, before=None, after=response_payload)
             if resource == "changes":
                 grocy_result = await _consume_diaper_for_entry(request_payload, response_payload)
                 response_payload["_grocy"] = grocy_result
-                modified_response_payload = response_payload
             if TELEGRAM_ACTIVITY_NOTIFICATIONS and TELEGRAM_CHAT_ID not in ("", 0):
-                asyncio.create_task(
-                    _notify_created_entry(path, request_payload, response_payload)
-                )
+                asyncio.create_task(_notify_created_entry(path, request_payload, response_payload))
+        elif request.method in ("PATCH", "PUT"):
+            after_payload = response_payload if isinstance(response_payload, dict) else {**(before_payload or {}), **request_payload}
+            _record_audit(request, "update", resource, entry_id, before=before_payload, after=after_payload)
+        elif request.method == "DELETE":
+            _record_audit(request, "delete", resource, entry_id, before=before_payload, after=None)
+
+        if request.method == "GET" and isinstance(response_payload, dict):
+            response_payload = _attach_audit(resource, response_payload)
+        elif isinstance(response_payload, dict) and response_payload.get("id") not in (None, ""):
+            response_payload = _attach_audit(resource, response_payload)
 
     excluded_headers = {"transfer-encoding", "content-encoding", "content-length", "connection", "server"}
     response_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded_headers}
-    if modified_response_payload is not None:
-        return JSONResponse(
-            content=modified_response_payload,
-            status_code=response.status_code,
-            headers=response_headers,
-        )
+    if response_payload is not None:
+        return JSONResponse(content=response_payload, status_code=response.status_code, headers=response_headers)
     return Response(content=response.content, status_code=response.status_code, headers=response_headers)
 
 

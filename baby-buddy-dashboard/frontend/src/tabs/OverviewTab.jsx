@@ -153,6 +153,7 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
                       label={f.label}
                       detail={f.detail}
                       color={colors.feeding}
+                      audit={f.entry?._audit}
                       isLast={i === arr.length - 1}
                     />
                   </div>
@@ -208,6 +209,7 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
                       label={`${s.duration.toFixed(1)} h${s.nap ? " · Siesta" : ""}`}
                       detail={`${s.start} a ${s.end}`}
                       color={colors.sleep}
+                      audit={s.entry?._audit}
                       isLast={i === arr.length - 1}
                     />
                   </div>
@@ -273,7 +275,10 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <DiaperBadge type={d.type} />
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{d.time}</span>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{d.time}</div>
+                          <div className="entry-author">Registrado por {d.entry?._audit?.created_by || "Autor no registrado"}{d.entry?._audit?.edit_count ? ` · editado ${d.entry._audit.edit_count} ${d.entry._audit.edit_count === 1 ? "vez" : "veces"}` : ""}</div>
+                        </div>
                       </div>
                       <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--mono)" }}>
                         {d.ago}

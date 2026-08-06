@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.9.0-es17"
+version: "2.0.0-es18"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con calendario completo editable, luz instantánea, Grocy directo, Telegram, habitación compartida y avisos."
+description: "Panel en castellano para Baby Buddy con modo noche automático, medicamentos, autoría por usuario de Home Assistant, auditoría, calendario, Grocy y Telegram."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -33,6 +33,9 @@ options:
       name: Bollito2
   shared_room_child_id: 1
   alerts_enabled: true
+  night_mode_enabled: true
+  night_mode_start: "22:00"
+  night_mode_end: "07:00"
   feeding_alert_minutes: 240
   active_timer_alert_minutes: 180
   room_temp_min: 18
@@ -45,7 +48,7 @@ options:
   alexa_alert_types: "temperature,active_timer"
   telegram_activity_notifications: true
   telegram_chat_id: "-5472345660"
-  telegram_activity_types: "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping"
+  telegram_activity_types: "timer,feeding,sleep,diaper,tummy,temperature,weight,height,note,pumping,medication"
   calendar_days_ahead: 365
   calendar_max_events: 4
   calendar_full_max_events: 200
@@ -98,6 +101,9 @@ schema:
       name: str
   shared_room_child_id: "int(0,9999)"
   alerts_enabled: bool
+  night_mode_enabled: bool
+  night_mode_start: str
+  night_mode_end: str
   feeding_alert_minutes: "int(15,1440)"
   active_timer_alert_minutes: "int(15,1440)"
   room_temp_min: "float(0,40)"

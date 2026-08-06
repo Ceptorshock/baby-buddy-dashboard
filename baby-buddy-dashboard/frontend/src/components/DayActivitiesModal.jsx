@@ -72,6 +72,7 @@ export default function DayActivitiesModal({
                 label={feeding.label}
                 detail={feeding.detail}
                 color={colors.feeding}
+                audit={feeding.entry?._audit}
                 isLast={index === entries.length - 1}
               />
             </div>
@@ -103,6 +104,7 @@ export default function DayActivitiesModal({
                 }`}
                 detail={`${sleep.start} ${translate("common.to")} ${sleep.end}`}
                 color={colors.sleep}
+                audit={sleep.entry?._audit}
                 isLast={index === entries.length - 1}
               />
             </div>
@@ -139,6 +141,7 @@ export default function DayActivitiesModal({
                   }`}
                   detail={`${startTime} ${translate("common.to")} ${endTime}`}
                   color={colors.tummy}
+                  audit={entry?._audit}
                   isLast={index === entries.length - 1}
                 />
               </div>

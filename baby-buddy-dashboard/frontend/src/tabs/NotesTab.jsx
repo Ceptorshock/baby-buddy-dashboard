@@ -27,6 +27,7 @@ export default function NotesTab({ notes, onEditEntry }) {
                   label={n.text}
                   detail={n.ago}
                   color={colors.note}
+                  audit={n.entry?._audit}
                   isLast={i === arr.length - 1}
                 />
               </div>

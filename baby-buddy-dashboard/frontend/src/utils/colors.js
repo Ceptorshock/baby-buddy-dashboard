@@ -7,4 +7,6 @@ export const colors = {
   temp: "#EF4444",
   height: "#6366F1",
   note: "#84CC16",
+  medication: "#F97316",
+  audit: "#14B8A6",
 };
