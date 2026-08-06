@@ -120,9 +120,31 @@ export default function App() {
             <h1 className="baby-name">
               {data.child?.first_name || "Bebé"}
             </h1>
-            {data.child?.birth_date && (
-              <span className="baby-age">{getAge(data.child.birth_date)}</span>
-            )}
+            <div className="baby-meta-row">
+              {data.child?.birth_date && (
+                <span className="baby-age">{getAge(data.child.birth_date)}</span>
+              )}
+              {data.diaperSize?.configured && data.diaperSize.available && (
+                <label className="diaper-size-pill" title="Talla activa usada para descontar pañales de Grocy">
+                  <span>🧷</span>
+                  <select
+                    value={data.diaperSize.state || ""}
+                    disabled={data.diaperSizeSaving}
+                    onChange={(event) => data.setDiaperSize(data.child?.id, event.target.value)}
+                  >
+                    {(data.diaperSize.options || []).map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {data.diaperSize?.configured && !data.diaperSize.available && (
+                <span className="diaper-size-unconfigured">🧷 Talla no disponible</span>
+              )}
+              {!data.diaperSize?.configured && (
+                <span className="diaper-size-unconfigured">🧷 Talla sin configurar</span>
+              )}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -149,7 +171,10 @@ export default function App() {
               className={`child-chip${c.id === data.child?.id ? " child-chip-active" : ""}`}
               onClick={() => data.selectChild(c.id)}
             >
-              {c.first_name}
+              <span>{c.first_name}</span>
+              <span className="child-chip-size">
+                {data.diaperSizes[String(c.id)]?.available ? data.diaperSizes[String(c.id)].state : "Sin talla"}
+              </span>
             </button>
           ))}
         </div>
@@ -367,6 +392,8 @@ export default function App() {
         <DiaperForm
           childId={data.child?.id}
           entry={modal.entry}
+          diaperSize={data.diaperSize}
+          onDiaperSizeChange={(option) => data.setDiaperSize(data.child?.id, option)}
           onDone={handleFormDone}
           onClose={closeModal}
         />

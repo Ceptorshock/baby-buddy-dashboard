@@ -82,6 +82,47 @@ body {
   font-family: var(--mono);
 }
 
+.baby-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.diaper-size-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid #F59E0B35;
+  border-radius: 999px;
+  background: #F59E0B10;
+  color: #F59E0B;
+  font-size: 11px;
+}
+
+.diaper-size-pill select {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+.diaper-size-pill select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.diaper-size-unconfigured {
+  font-size: 11px;
+  color: #EF4444;
+}
+
 .sync-time {
   font-size: 11px;
   color: var(--text-dim);
@@ -125,7 +166,7 @@ body {
   display: none;
 }
 .child-chip {
-  padding: 6px 16px;
+  padding: 7px 14px;
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--card-bg);
@@ -136,6 +177,17 @@ body {
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.child-chip-size {
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  opacity: 0.78;
+  padding-left: 7px;
+  border-left: 1px solid currentColor;
 }
 .child-chip:hover {
   color: var(--text-muted);
@@ -473,4 +525,15 @@ body {
     bottom: 16px;
     right: 16px;
   }
+}
+
+.form-warning {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #EF444440;
+  background: #EF444412;
+  color: #FCA5A5;
+  font-size: 12px;
+  line-height: 1.4;
 }

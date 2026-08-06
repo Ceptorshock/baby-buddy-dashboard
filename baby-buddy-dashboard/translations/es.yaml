@@ -14,3 +14,13 @@ configuration:
   unit_system:
     name: Sistema de unidades
     description: "Unidades de medida: métrico (kg, cm, mL, °C) o imperial (lb, in, oz, °F)"
+  diaper_size_entities:
+    name: Tallas de pañal por bebé
+    description: "Relaciona el ID de cada niño de Baby Buddy con su ayudante input_select de talla en Home Assistant"
+    fields:
+      child_id:
+        name: ID del bebé
+        description: "ID interno del niño en Baby Buddy (por ejemplo 1 o 2)"
+      entity_id:
+        name: Entidad de talla
+        description: "Entidad input_select de Home Assistant, por ejemplo input_select.bollito_talla_panal"

@@ -40,8 +40,11 @@ export function useBabyData() {
   const [error, setError] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [unitSystem, setUnitSystem] = useState("metric");
+  const [diaperSizes, setDiaperSizes] = useState({});
+  const [diaperSizeSaving, setDiaperSizeSaving] = useState(false);
   const intervalRef = useRef(null);
   const childIdRef = useRef(null);
+  const defaultChildIdRef = useRef(null);
 
   const fetchData = useCallback(async (childId) => {
     try {
@@ -119,13 +122,44 @@ export function useBabyData() {
     }
   }, []);
 
+  const fetchDiaperSizes = useCallback(async () => {
+    try {
+      const result = await api.getDiaperSizes();
+      setDiaperSizes(result.sizes || {});
+    } catch {
+      // Diaper-size integration is optional; Baby Buddy data must keep working.
+    }
+  }, []);
+
+  const setDiaperSize = useCallback(async (childId, option) => {
+    if (!childId || !option) return null;
+    setDiaperSizeSaving(true);
+    try {
+      const updated = await api.setDiaperSize(childId, option);
+      setDiaperSizes((previous) => ({
+        ...previous,
+        [String(childId)]: updated,
+      }));
+      return updated;
+    } finally {
+      setDiaperSizeSaving(false);
+    }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     try {
-      const childrenRes = await api.getChildren();
+      const [childrenRes] = await Promise.all([
+        api.getChildren(),
+        fetchDiaperSizes(),
+      ]);
       const allChildren = (childrenRes.results || []).map(fixChildPicture);
       setChildren(allChildren);
 
-      const active = allChildren.find((c) => c.id === childIdRef.current) || allChildren[0] || null;
+      const preferredChildId = childIdRef.current ?? defaultChildIdRef.current;
+      const active =
+        allChildren.find((c) => c.id === preferredChildId) ||
+        allChildren[0] ||
+        null;
       if (active) {
         childIdRef.current = active.id;
         setChild(active);
@@ -136,7 +170,7 @@ export function useBabyData() {
       setError(err.message);
       setLoading(false);
     }
-  }, [fetchData]);
+  }, [fetchData, fetchDiaperSizes]);
 
   const selectChild = useCallback(
     (id) => {
@@ -169,6 +203,7 @@ export function useBabyData() {
     setNotes(mock.notes);
     setMonthlyFeedings(mock.monthlyFeedings);
     setMonthlySleep(mock.monthlySleep);
+    setDiaperSizes({ "1": { configured: true, available: true, state: "Talla 1", options: ["Talla 0", "Talla 1", "Talla 2"] } });
     setLastSync(new Date());
     setLoading(false);
   }, []);
@@ -205,6 +240,8 @@ export function useBabyData() {
       .getConfig()
       .then((cfg) => {
         if (cfg.unit_system) setUnitSystem(cfg.unit_system);
+        const configuredDefault = Number(cfg.default_child_id || 0);
+        defaultChildIdRef.current = configuredDefault > 0 ? configuredDefault : null;
         if (cfg.demo_mode) {
           demoRef.current = true;
           loadMock();
@@ -244,6 +281,10 @@ export function useBabyData() {
     error,
     lastSync,
     unitSystem,
+    diaperSizes,
+    diaperSize: child ? diaperSizes[String(child.id)] : null,
+    diaperSizeSaving,
+    setDiaperSize,
     refetch: fetchAll,
   };
 }

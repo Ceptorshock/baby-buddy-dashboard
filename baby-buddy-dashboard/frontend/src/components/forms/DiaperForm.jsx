@@ -16,7 +16,7 @@ const COLORS = [
   { value: "yellow", label: "Amarillo" },
 ];
 
-export default function DiaperForm({ childId, entry, onDone, onClose, preset }) {
+export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeChange, onDone, onClose, preset }) {
   const isEdit = !!entry;
   const [time, setTime] = useState(entry?.time ? toLocalDatetime(new Date(entry.time)) : toLocalDatetime(new Date()));
   const [wet, setWet] = useState(entry ? entry.wet : (preset === "wet" || preset === "both"));
@@ -24,11 +24,18 @@ export default function DiaperForm({ childId, entry, onDone, onClose, preset }) 
   const [color, setColor] = useState(entry?.color || "");
   const [notes, setNotes] = useState(entry?.notes || "");
   const [saving, setSaving] = useState(false);
+  const [selectedSize, setSelectedSize] = useState(diaperSize?.state || "");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
+      // Update the active Home Assistant size before creating the Baby Buddy
+      // change, so the Grocy automation consumes the correct product.
+      if (!isEdit && selectedSize && selectedSize !== diaperSize?.state && onDiaperSizeChange) {
+        await onDiaperSizeChange(selectedSize);
+      }
+
       const data = { wet, solid, time: `${time}:00` };
       if (color) data.color = color;
       if (notes.trim()) data.notes = notes.trim();
@@ -55,6 +62,24 @@ export default function DiaperForm({ childId, entry, onDone, onClose, preset }) 
             required
           />
         </FormField>
+        {!isEdit && diaperSize?.configured && diaperSize.available && (
+          <FormField label="Talla activa">
+            <FormSelect
+              options={(diaperSize.options || []).map((option) => ({ value: option, label: option }))}
+              value={selectedSize}
+              onChange={(e) => setSelectedSize(e.target.value)}
+              disabled={false}
+            />
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>
+              Esta talla se usa para descontar una unidad del producto correspondiente en Grocy.
+            </div>
+          </FormField>
+        )}
+        {!isEdit && (!diaperSize?.configured || !diaperSize.available) && (
+          <div className="form-warning">
+            No hay una talla de pañal disponible para este bebé en Home Assistant.
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           {[
             { key: "wet", label: "Pis", active: wet, toggle: () => setWet(!wet) },

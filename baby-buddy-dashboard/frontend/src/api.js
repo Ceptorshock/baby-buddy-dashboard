@@ -1,5 +1,6 @@
 const API_BASE = "./api/baby-buddy";
 const CONFIG_PATH = "./api/config";
+const DIAPER_SIZES_PATH = "./api/diaper-sizes";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -100,6 +101,28 @@ export const api = {
   updateTimer: (id, data) =>
     request(`timers/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTimer: (id) => request(`timers/${id}/`, { method: "DELETE" }),
+
+  // Home Assistant helpers exposed by our backend
+  getDiaperSizes: async () => {
+    const response = await fetch(DIAPER_SIZES_PATH);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Diaper-size API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+  setDiaperSize: async (childId, option) => {
+    const response = await fetch(`${DIAPER_SIZES_PATH}/${childId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ option }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Diaper-size API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
 
   // Config (our backend, not Baby Buddy)
   getConfig: () => fetch(CONFIG_PATH).then((r) => r.json()),

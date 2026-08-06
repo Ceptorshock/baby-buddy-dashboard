@@ -296,12 +296,17 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
                 >
                   <div style={{ flex: 1, textAlign: "center" }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "#3B82F6" }}>{wetCount}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Pis</div>
+                    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Solo pis</div>
                   </div>
                   <div style={{ width: 1, background: "var(--border)" }} />
                   <div style={{ flex: 1, textAlign: "center" }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "#D97706" }}>{solidCount}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Caca</div>
+                    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Solo caca</div>
+                  </div>
+                  <div style={{ width: 1, background: "var(--border)" }} />
+                  <div style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: colors.diaper }}>{bothCount}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Ambos</div>
                   </div>
                   <div style={{ width: 1, background: "var(--border)" }} />
                   <div style={{ flex: 1, textAlign: "center" }}>

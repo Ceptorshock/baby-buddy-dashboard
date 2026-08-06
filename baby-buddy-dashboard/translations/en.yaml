@@ -14,3 +14,13 @@ configuration:
   unit_system:
     name: Unit System
     description: "Unit labels for measurements (metric: kg, cm, mL, °C — imperial: lb, in, oz, °F)"
+  diaper_size_entities:
+    name: Diaper sizes per child
+    description: "Maps each Baby Buddy child ID to its Home Assistant diaper-size input_select helper"
+    fields:
+      child_id:
+        name: Child ID
+        description: "Internal Baby Buddy child ID (for example 1 or 2)"
+      entity_id:
+        name: Size entity
+        description: "Home Assistant input_select entity, for example input_select.bollito_talla_panal"
