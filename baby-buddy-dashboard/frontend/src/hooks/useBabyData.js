@@ -44,6 +44,7 @@ export function useBabyData() {
   const [diaperSizes, setDiaperSizes] = useState({});
   const [diaperSizeSaving, setDiaperSizeSaving] = useState(false);
   const [roomStatuses, setRoomStatuses] = useState({});
+  const [calendarStatuses, setCalendarStatuses] = useState({});
   const [alertsConfig, setAlertsConfig] = useState({ enabled: true, feeding_minutes: 240, active_timer_minutes: 180, room_temp_min: 18, room_temp_max: 27, diaper_stock_low_threshold: 10 });
   const intervalRef = useRef(null);
   const childIdRef = useRef(null);
@@ -146,6 +147,15 @@ export function useBabyData() {
     }
   }, []);
 
+  const fetchCalendarStatuses = useCallback(async () => {
+    try {
+      const result = await api.getCalendarEvents();
+      setCalendarStatuses(result.calendars || {});
+    } catch {
+      // Calendar integration is optional.
+    }
+  }, []);
+
   const toggleRoomLight = useCallback(async (childId) => {
     if (!childId) return null;
     const updated = await api.toggleRoomLight(childId);
@@ -180,6 +190,7 @@ export function useBabyData() {
         api.getChildren(),
         fetchDiaperSizes(),
         fetchRoomStatuses(),
+        fetchCalendarStatuses(),
       ]);
       const allChildren = (childrenRes.results || []).map(fixChildPicture);
       setChildren(allChildren);
@@ -199,7 +210,7 @@ export function useBabyData() {
       setError(err.message);
       setLoading(false);
     }
-  }, [fetchData, fetchDiaperSizes, fetchRoomStatuses]);
+  }, [fetchData, fetchDiaperSizes, fetchRoomStatuses, fetchCalendarStatuses]);
 
   const selectChild = useCallback(
     (id) => {
@@ -321,6 +332,8 @@ export function useBabyData() {
     roomStatuses,
     roomStatus: child ? roomStatuses[String(child.id)] : null,
     toggleRoomLight,
+    calendarStatuses,
+    calendarStatus: child ? calendarStatuses[String(child.id)] : null,
     alertsConfig,
     refetch: fetchAll,
   };

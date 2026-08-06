@@ -45,7 +45,7 @@ function activeLabel(name) {
   return name || "Actividad";
 }
 
-export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, diaperSize, activeTimers, elapsedMap }) {
+export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, activeTimers, elapsedMap }) {
   const units = useUnits();
   const feeding = latest(weeklyFeedings, ["end", "start"]);
   const sleep = latest(weeklySleep, ["end", "start"]);
@@ -80,12 +80,6 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, d
       color: active ? "#F59E0B" : "#22C55E",
       label: "Estado actual",
       value: active ? `${activeLabel(active.name)} · ${Math.floor((elapsedMap?.[active.id] || 0) / 60)} min` : "Sin actividad en curso",
-    },
-    {
-      icon: <Icons.Baby />,
-      color: colors.diaper,
-      label: "Talla activa",
-      value: diaperSize?.available ? diaperSize.state : "Sin configurar",
     },
   ];
 

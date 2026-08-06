@@ -2,6 +2,7 @@ const API_BASE = "./api/baby-buddy";
 const CONFIG_PATH = "./api/config";
 const DIAPER_SIZES_PATH = "./api/diaper-sizes";
 const ROOM_STATUS_PATH = "./api/room-status";
+const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
 
 async function request(endpoint, options = {}) {
@@ -138,6 +139,16 @@ export const api = {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       throw new Error(`Room API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+
+  // Home Assistant calendars configured per child
+  getCalendarEvents: async () => {
+    const response = await fetch(CALENDAR_EVENTS_PATH);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Calendar API error ${response.status}: ${text}`);
     }
     return response.json();
   },

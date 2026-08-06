@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, HTTPException
@@ -107,6 +108,14 @@ def _load_room_entities(options: dict) -> dict[int, dict[str, str]]:
     return result
 
 
+def _load_calendar_entities(options: dict) -> dict[int, str]:
+    result = _load_child_entity_map(options, "calendar_entities", "entity_id")
+    if not result:
+        result[1] = "calendar.bollito"
+        result[2] = "calendar.bollito2"
+    return result
+
+
 OPTIONS = _load_options()
 if not BABY_BUDDY_URL:
     BABY_BUDDY_URL = OPTIONS.get("baby_buddy_url", "").rstrip("/")
@@ -125,7 +134,18 @@ DIAPER_SIZE_ENTITIES = _load_diaper_size_entities(OPTIONS)
 DIAPER_LAST_PROCESSED_ENTITIES = _load_child_entity_map(OPTIONS, "diaper_size_entities", "last_processed_entity")
 DIAPER_PRODUCT_IDS = _load_diaper_product_ids(OPTIONS)
 ROOM_ENTITIES = _load_room_entities(OPTIONS)
+CALENDAR_ENTITIES = _load_calendar_entities(OPTIONS)
+CALENDAR_DAYS_AHEAD = max(1, int(OPTIONS.get("calendar_days_ahead", 90) or 90))
+CALENDAR_MAX_EVENTS = max(1, int(OPTIONS.get("calendar_max_events", 4) or 4))
 GROCY_RESTORE_SERVICE = str(OPTIONS.get("grocy_restore_service", "") or "").strip()
+HOME_ASSISTANT_ALERT_NOTIFICATIONS = bool(OPTIONS.get("home_assistant_alert_notifications", True))
+MOBILE_NOTIFY_SERVICE = str(OPTIONS.get("mobile_notify_service", "") or "").strip()
+ALEXA_NOTIFY_SERVICE = str(OPTIONS.get("alexa_notify_service", "") or "").strip()
+ALEXA_ALERT_TYPES = {
+    item.strip()
+    for item in str(OPTIONS.get("alexa_alert_types", "temperature,active_timer") or "").split(",")
+    if item.strip()
+}
 ALERTS_CONFIG = {
     "enabled": bool(OPTIONS.get("alerts_enabled", True)),
     "feeding_minutes": int(OPTIONS.get("feeding_alert_minutes", 240) or 240),
@@ -141,6 +161,7 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 
 http_client: httpx.AsyncClient | None = None
 ha_client: httpx.AsyncClient | None = None
+active_alert_keys: set[str] = set()
 
 
 @asynccontextmanager
@@ -164,9 +185,25 @@ async def lifespan(app: FastAPI):
         timeout=10.0,
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
     )
-    yield
-    await http_client.aclose()
-    await ha_client.aclose()
+    alert_task = None
+    if (
+        ALERTS_CONFIG.get("enabled")
+        and SUPERVISOR_TOKEN
+        and (HOME_ASSISTANT_ALERT_NOTIFICATIONS or MOBILE_NOTIFY_SERVICE or ALEXA_NOTIFY_SERVICE)
+        and not DEMO_MODE
+    ):
+        alert_task = asyncio.create_task(_alert_monitor_loop())
+    try:
+        yield
+    finally:
+        if alert_task:
+            alert_task.cancel()
+            try:
+                await alert_task
+            except asyncio.CancelledError:
+                pass
+        await http_client.aclose()
+        await ha_client.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -224,6 +261,265 @@ async def _safe_state(entity_id: str) -> dict | None:
         return None
 
 
+def _parse_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _calendar_start(event: dict) -> tuple[str | None, bool]:
+    raw = event.get("start")
+    if isinstance(raw, dict):
+        if raw.get("dateTime"):
+            return str(raw["dateTime"]), False
+        if raw.get("date"):
+            return str(raw["date"]), True
+    if isinstance(raw, str):
+        return raw, len(raw) == 10
+    return None, False
+
+
+def _calendar_sort_key(event: dict) -> str:
+    start, _ = _calendar_start(event)
+    return start or "9999-12-31T23:59:59"
+
+
+async def _get_calendar_events(entity_id: str) -> list[dict]:
+    _require_home_assistant_api()
+    start = datetime.now(timezone.utc)
+    end = start + timedelta(days=CALENDAR_DAYS_AHEAD)
+    try:
+        response = await ha_client.get(
+            f"calendars/{entity_id}",
+            params={"start": start.isoformat(), "end": end.isoformat()},
+        )
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Home Assistant")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Calendar request timed out")
+    if response.status_code == 404:
+        raise HTTPException(404, f"Calendar not found: {entity_id}")
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Home Assistant returned invalid calendar data")
+    if not isinstance(payload, list):
+        return []
+    return sorted(payload, key=_calendar_sort_key)
+
+
+async def _baby_buddy_results(resource: str, params: dict | None = None) -> list[dict]:
+    try:
+        response = await http_client.get(f"/api/{resource}/", params=params or {})
+    except (httpx.ConnectError, httpx.TimeoutException):
+        return []
+    if response.status_code >= 400:
+        return []
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, dict):
+        results = payload.get("results", [])
+        return results if isinstance(results, list) else []
+    return payload if isinstance(payload, list) else []
+
+
+def _timer_child_id(timer: dict) -> int:
+    raw = timer.get("child")
+    if isinstance(raw, dict):
+        raw = raw.get("id")
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _notification_id(key: str) -> str:
+    safe = "".join(ch if ch.isalnum() else "_" for ch in key.lower())
+    return f"baby_buddy_{safe}"[:180]
+
+
+async def _send_alert(alert: dict):
+    notification_id = _notification_id(alert["key"])
+    title = alert.get("title", "Aviso de Baby Buddy")
+    message = alert.get("message", "")
+
+    if HOME_ASSISTANT_ALERT_NOTIFICATIONS:
+        try:
+            await _call_ha_service(
+                "persistent_notification.create",
+                {
+                    "title": title,
+                    "message": message,
+                    "notification_id": notification_id,
+                },
+            )
+        except HTTPException:
+            pass
+
+    if MOBILE_NOTIFY_SERVICE:
+        try:
+            await _call_ha_service(
+                MOBILE_NOTIFY_SERVICE,
+                {
+                    "title": title,
+                    "message": message,
+                    "data": {"tag": notification_id},
+                },
+            )
+        except HTTPException:
+            pass
+
+    if ALEXA_NOTIFY_SERVICE and alert.get("type") in ALEXA_ALERT_TYPES:
+        try:
+            await _call_ha_service(
+                ALEXA_NOTIFY_SERVICE,
+                {
+                    "message": alert.get("alexa_message", message),
+                    "data": {"type": "announce"},
+                },
+            )
+        except HTTPException:
+            pass
+
+
+async def _dismiss_alert(key: str):
+    if not HOME_ASSISTANT_ALERT_NOTIFICATIONS:
+        return
+    try:
+        await _call_ha_service(
+            "persistent_notification.dismiss",
+            {"notification_id": _notification_id(key)},
+        )
+    except HTTPException:
+        pass
+
+
+async def _collect_alerts() -> list[dict]:
+    now = datetime.now(timezone.utc)
+    children = await _baby_buddy_results("children", {"limit": 100})
+    timers = await _baby_buddy_results("timers", {"limit": 100})
+    alerts: list[dict] = []
+
+    for child in children:
+        try:
+            child_id = int(child.get("id"))
+        except (TypeError, ValueError):
+            continue
+        child_name = str(child.get("first_name") or f"Bebé {child_id}")
+
+        feedings = await _baby_buddy_results(
+            "feedings",
+            {"child": child_id, "limit": 1, "ordering": "-start"},
+        )
+        if feedings:
+            feeding = feedings[0]
+            feeding_time = _parse_datetime(feeding.get("end") or feeding.get("start"))
+            if feeding_time:
+                elapsed_minutes = max(0, int((now - feeding_time.astimezone(timezone.utc)).total_seconds() // 60))
+                if elapsed_minutes >= ALERTS_CONFIG["feeding_minutes"]:
+                    alerts.append({
+                        "key": f"feeding_overdue:{child_id}:{feeding.get('id', 'last')}",
+                        "type": "feeding",
+                        "title": f"Toma pendiente · {child_name}",
+                        "message": (
+                            f"Han pasado {elapsed_minutes // 60} h "
+                            f"{elapsed_minutes % 60} min desde la última toma de {child_name}."
+                        ),
+                    })
+
+        for timer in timers:
+            timer_child = _timer_child_id(timer)
+            if timer_child not in (0, child_id):
+                continue
+            started = _parse_datetime(timer.get("start"))
+            if not started:
+                continue
+            elapsed_minutes = max(0, int((now - started.astimezone(timezone.utc)).total_seconds() // 60))
+            if elapsed_minutes >= ALERTS_CONFIG["active_timer_minutes"]:
+                timer_name = str(timer.get("name") or "Actividad")
+                alerts.append({
+                    "key": f"active_timer:{child_id}:{timer.get('id', timer_name)}",
+                    "type": "active_timer",
+                    "title": f"Actividad larga · {child_name}",
+                    "message": f"El temporizador «{timer_name}» lleva {elapsed_minutes} minutos activo.",
+                    "alexa_message": f"Aviso. La actividad {timer_name} de {child_name} lleva {elapsed_minutes} minutos activa.",
+                })
+
+        room_config = ROOM_ENTITIES.get(child_id, {})
+        if room_config:
+            temp_state, stock_state = await asyncio.gather(
+                _safe_state(room_config.get("temperature_entity", "")),
+                _safe_state(room_config.get("diaper_stock_entity", "")),
+            )
+            try:
+                temperature = float(temp_state.get("state")) if temp_state else None
+            except (TypeError, ValueError):
+                temperature = None
+            if temperature is not None:
+                if temperature < ALERTS_CONFIG["room_temp_min"]:
+                    alerts.append({
+                        "key": f"temperature_low:{child_id}",
+                        "type": "temperature",
+                        "title": f"Habitación fría · {child_name}",
+                        "message": f"La habitación de {child_name} está a {temperature:.1f} °C.",
+                        "alexa_message": f"Aviso. La habitación de {child_name} está fría, a {temperature:.1f} grados.",
+                    })
+                elif temperature > ALERTS_CONFIG["room_temp_max"]:
+                    alerts.append({
+                        "key": f"temperature_high:{child_id}",
+                        "type": "temperature",
+                        "title": f"Habitación caliente · {child_name}",
+                        "message": f"La habitación de {child_name} está a {temperature:.1f} °C.",
+                        "alexa_message": f"Aviso. La habitación de {child_name} está caliente, a {temperature:.1f} grados.",
+                    })
+
+            try:
+                stock = float(stock_state.get("state")) if stock_state else None
+            except (TypeError, ValueError):
+                stock = None
+            if stock is not None and stock <= ALERTS_CONFIG["diaper_stock_low_threshold"]:
+                alerts.append({
+                    "key": f"diaper_stock:{child_id}",
+                    "type": "diaper_stock",
+                    "title": f"Pocos pañales · {child_name}",
+                    "message": f"Quedan {stock:g} pañales de la talla activa para {child_name}.",
+                })
+
+    return alerts
+
+
+async def _alert_monitor_loop():
+    global active_alert_keys
+    await asyncio.sleep(8)
+    while True:
+        try:
+            alerts = await _collect_alerts()
+            current = {alert["key"]: alert for alert in alerts}
+            new_keys = set(current) - active_alert_keys
+            resolved_keys = active_alert_keys - set(current)
+            for key in sorted(new_keys):
+                await _send_alert(current[key])
+            for key in sorted(resolved_keys):
+                await _dismiss_alert(key)
+            active_alert_keys = set(current)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Alerts are supplementary and must never stop the dashboard.
+            pass
+        await asyncio.sleep(max(30, int(REFRESH_INTERVAL)))
+
+
 # --- API routes ---
 
 
@@ -235,6 +531,14 @@ async def get_config():
         "unit_system": UNIT_SYSTEM,
         "default_child_id": DEFAULT_CHILD_ID,
         "alerts": ALERTS_CONFIG,
+        "calendar_days_ahead": CALENDAR_DAYS_AHEAD,
+        "calendar_max_events": CALENDAR_MAX_EVENTS,
+        "notifications": {
+            "home_assistant": HOME_ASSISTANT_ALERT_NOTIFICATIONS,
+            "mobile_service": MOBILE_NOTIFY_SERVICE,
+            "alexa_service": ALEXA_NOTIFY_SERVICE,
+            "alexa_alert_types": sorted(ALEXA_ALERT_TYPES),
+        },
     }
 
 
@@ -320,6 +624,41 @@ async def get_room_statuses():
             "camera_url": f"./api/room-camera/{child_id}" if config.get("camera_entity") else None,
         }
     return {"available": bool(SUPERVISOR_TOKEN), "rooms": rooms}
+
+
+@app.get("/api/calendar-events")
+async def get_calendar_events():
+    calendars: dict[str, dict] = {}
+    for child_id, entity_id in CALENDAR_ENTITIES.items():
+        try:
+            raw_events = await _get_calendar_events(entity_id)
+            events = []
+            for raw in raw_events[:CALENDAR_MAX_EVENTS]:
+                start, all_day = _calendar_start(raw)
+                if not start:
+                    continue
+                events.append({
+                    "summary": str(raw.get("summary") or "Cita"),
+                    "start": start,
+                    "all_day": all_day,
+                    "location": str(raw.get("location") or "").strip(),
+                    "description": str(raw.get("description") or "").strip(),
+                })
+            calendars[str(child_id)] = {
+                "configured": True,
+                "available": True,
+                "entity_id": entity_id,
+                "events": events,
+            }
+        except HTTPException as exc:
+            calendars[str(child_id)] = {
+                "configured": True,
+                "available": False,
+                "entity_id": entity_id,
+                "events": [],
+                "error": exc.detail,
+            }
+    return {"available": bool(SUPERVISOR_TOKEN), "calendars": calendars}
 
 
 @app.post("/api/room-light/{child_id}/toggle")

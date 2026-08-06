@@ -20,6 +20,7 @@ import TimerButton from "./components/TimerButton";
 import NowPanel from "./components/NowPanel";
 import AlertsPanel from "./components/AlertsPanel";
 import RoomCard from "./components/RoomCard";
+import CalendarCard from "./components/CalendarCard";
 import UndoToast from "./components/UndoToast";
 import { api } from "./api";
 import "./styles.css";
@@ -307,7 +308,6 @@ export default function App() {
               weeklyFeedings={data.weeklyFeedings}
               weeklySleep={data.weeklySleep}
               recentChanges={data.recentChanges}
-              diaperSize={data.diaperSize}
               activeTimers={timer.activeTimers}
               elapsedMap={timer.elapsedMap}
             />
@@ -317,6 +317,7 @@ export default function App() {
                 status={data.roomStatus}
                 onToggleLight={() => data.toggleRoomLight(data.child?.id)}
               />
+              <CalendarCard status={data.calendarStatus} />
             </div>
           <OverviewTab
             feedings={data.feedings}

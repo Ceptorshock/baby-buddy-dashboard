@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.3.0-es11"
+version: "1.4.0-es12"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con pantalla Ahora, habitación, avisos, deshacer, tallas de pañal y resúmenes diarios."
+description: "Panel en castellano para Baby Buddy con calendario por bebé, habitación interactiva, avisos de Home Assistant, deshacer y resúmenes diarios."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -32,14 +32,25 @@ options:
   room_temp_min: 18
   room_temp_max: 27
   diaper_stock_low_threshold: 10
+  home_assistant_alert_notifications: true
+  mobile_notify_service: ""
+  alexa_notify_service: ""
+  alexa_alert_types: "temperature,active_timer"
+  calendar_days_ahead: 90
+  calendar_max_events: 4
+  calendar_entities:
+    - child_id: 1
+      entity_id: calendar.bollito
+    - child_id: 2
+      entity_id: calendar.bollito2
   grocy_restore_service: rest_command.grocy_reponer_panal
   diaper_size_entities:
     - child_id: 1
       entity_id: input_select.bollito_talla_panal
       last_processed_entity: input_text.bollito_ultimo_panal_enviado_a_grocy
     - child_id: 2
-      entity_id: input_select.bollito2_talla_panal
-      last_processed_entity: input_text.bollito2_ultimo_panal_enviado_a_grocy
+      entity_id: input_select.bebe_2_talla_panal
+      last_processed_entity: input_text.bebe_2_ultimo_panal_enviado_a_grocy
   diaper_product_ids:
     - size: Talla 0
       product_id: 40
@@ -75,6 +86,15 @@ schema:
   room_temp_min: "float(0,40)"
   room_temp_max: "float(0,40)"
   diaper_stock_low_threshold: "int(0,1000)"
+  home_assistant_alert_notifications: bool
+  mobile_notify_service: str
+  alexa_notify_service: str
+  alexa_alert_types: str
+  calendar_days_ahead: "int(1,365)"
+  calendar_max_events: "int(1,10)"
+  calendar_entities:
+    - child_id: int
+      entity_id: str
   grocy_restore_service: str
   diaper_size_entities:
     - child_id: int
