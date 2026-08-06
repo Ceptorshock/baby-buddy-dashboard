@@ -28,9 +28,9 @@ options:
   default_child_id: 1
   diaper_size_entities:
     - child_id: 1
-      entity_id: input_select.bollito_talla_panal
+      entity_id: input_select.bollito_de_talla_panal
     - child_id: 2
-      entity_id: input_select.bebe_2_talla_panal
+      entity_id: input_select.bollito2_talla_de_panal
 schema:
   baby_buddy_url: url
   baby_buddy_api_key: password
