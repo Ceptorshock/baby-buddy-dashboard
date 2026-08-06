@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.7.0-es15"
+version: "1.8.0-es16"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con citas editables y verificadas, avisos móviles múltiples, stock dinámico de pañales, Telegram, habitación, deshacer y resúmenes."
+description: "Panel en castellano para Baby Buddy con nombres configurables, habitación compartida, citas editables, avisos móviles, stock dinámico, Telegram, deshacer y resúmenes."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -26,6 +26,12 @@ options:
   demo_mode: false
   unit_system: metric
   default_child_id: 1
+  child_names:
+    - child_id: 1
+      name: Bollito
+    - child_id: 2
+      name: Bollito2
+  shared_room_child_id: 1
   alerts_enabled: true
   feeding_alert_minutes: 240
   active_timer_alert_minutes: 180
@@ -85,6 +91,10 @@ schema:
   demo_mode: bool
   unit_system: "list(metric|imperial)"
   default_child_id: "int(0,9999)"
+  child_names:
+    - child_id: int
+      name: str
+  shared_room_child_id: "int(0,9999)"
   alerts_enabled: bool
   feeding_alert_minutes: "int(15,1440)"
   active_timer_alert_minutes: "int(15,1440)"

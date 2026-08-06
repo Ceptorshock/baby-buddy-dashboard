@@ -120,6 +120,34 @@ def _load_calendar_entities(options: dict) -> dict[int, str]:
     return result
 
 
+def _load_child_names(options: dict) -> dict[int, str]:
+    raw = options.get("child_names", [])
+    result: dict[int, str] = {}
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                child_id = int(item.get("child_id"))
+            except (TypeError, ValueError):
+                continue
+            name = str(item.get("name", "") or "").strip()
+            if child_id > 0 and name:
+                result[child_id] = name
+    elif isinstance(raw, dict):
+        for raw_id, raw_name in raw.items():
+            try:
+                child_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            name = str(raw_name or "").strip()
+            if child_id > 0 and name:
+                result[child_id] = name
+    if not result:
+        result = {1: "Bollito", 2: "Bollito2"}
+    return result
+
+
 def _parse_service_list(value) -> list[str]:
     if isinstance(value, list):
         raw_items = value
@@ -152,6 +180,11 @@ DIAPER_LAST_PROCESSED_ENTITIES = _load_child_entity_map(OPTIONS, "diaper_size_en
 DIAPER_PRODUCT_IDS = _load_diaper_product_ids(OPTIONS)
 ROOM_ENTITIES = _load_room_entities(OPTIONS)
 CALENDAR_ENTITIES = _load_calendar_entities(OPTIONS)
+CHILD_NAMES = _load_child_names(OPTIONS)
+try:
+    SHARED_ROOM_CHILD_ID = int(OPTIONS.get("shared_room_child_id", 0) or 0)
+except (TypeError, ValueError):
+    SHARED_ROOM_CHILD_ID = 0
 CALENDAR_DAYS_AHEAD = max(1, int(OPTIONS.get("calendar_days_ahead", 90) or 90))
 CALENDAR_MAX_EVENTS = max(1, int(OPTIONS.get("calendar_max_events", 4) or 4))
 GROCY_RESTORE_SERVICE = str(OPTIONS.get("grocy_restore_service", "") or "").strip()
@@ -377,7 +410,7 @@ def _number_or_none(value) -> float | None:
 
 async def _active_diaper_stock(child_id: int) -> dict:
     size_entity = DIAPER_SIZE_ENTITIES.get(child_id, "")
-    room_stock_entity = ROOM_ENTITIES.get(child_id, {}).get("diaper_stock_entity", "")
+    room_stock_entity = _room_config_for_child(child_id).get("diaper_stock_entity", "")
     size_state, grocy_state = await asyncio.gather(
         _safe_state(size_entity),
         _safe_state(GROCY_STOCK_ENTITY),
@@ -518,9 +551,22 @@ def _coerce_child_id(value) -> int:
         return 0
 
 
+def _room_config_for_child(child_id: int) -> dict[str, str]:
+    config = ROOM_ENTITIES.get(child_id)
+    if config:
+        return config
+    if SHARED_ROOM_CHILD_ID > 0:
+        return ROOM_ENTITIES.get(SHARED_ROOM_CHILD_ID, {})
+    return {}
+
+
 async def _child_name(child_id: int) -> str:
     if child_id <= 0:
-        return "Bollito"
+        return CHILD_NAMES.get(DEFAULT_CHILD_ID, "Bollito")
+    configured_name = CHILD_NAMES.get(child_id)
+    if configured_name:
+        child_name_cache[child_id] = configured_name
+        return configured_name
     if child_id in child_name_cache:
         return child_name_cache[child_id]
     try:
@@ -528,9 +574,15 @@ async def _child_name(child_id: int) -> str:
         if response.status_code < 400:
             payload = response.json()
             if isinstance(payload, dict):
-                name = str(payload.get("first_name") or f"Bebé {child_id}").strip()
-                child_name_cache[child_id] = name
-                return name
+                name = str(
+                    payload.get("first_name")
+                    or payload.get("name")
+                    or payload.get("full_name")
+                    or ""
+                ).strip()
+                if name:
+                    child_name_cache[child_id] = name
+                    return name
     except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
         pass
     return f"Bebé {child_id}"
@@ -845,7 +897,7 @@ async def _collect_alerts() -> list[dict]:
             child_id = int(child.get("id"))
         except (TypeError, ValueError):
             continue
-        child_name = str(child.get("first_name") or f"Bebé {child_id}")
+        child_name = await _child_name(child_id)
 
         feedings = await _baby_buddy_results(
             "feedings",
@@ -885,7 +937,7 @@ async def _collect_alerts() -> list[dict]:
                     "alexa_message": f"Aviso. La actividad {timer_name} de {child_name} lleva {elapsed_minutes} minutos activa.",
                 })
 
-        room_config = ROOM_ENTITIES.get(child_id, {})
+        room_config = _room_config_for_child(child_id)
         if room_config:
             temp_state, diaper_stock = await asyncio.gather(
                 _safe_state(room_config.get("temperature_entity", "")),
@@ -1050,9 +1102,9 @@ async def set_diaper_size(child_id: int, request: Request):
 @app.get("/api/room-status")
 async def get_room_statuses():
     rooms: dict[str, dict] = {}
-    child_ids = set(ROOM_ENTITIES) | set(DIAPER_SIZE_ENTITIES)
+    child_ids = set(ROOM_ENTITIES) | set(DIAPER_SIZE_ENTITIES) | set(CALENDAR_ENTITIES) | set(CHILD_NAMES)
     for child_id in child_ids:
-        config = ROOM_ENTITIES.get(child_id, {})
+        config = _room_config_for_child(child_id)
         temp, humidity, light, window, diaper_stock = await asyncio.gather(
             _safe_state(config.get("temperature_entity", "")),
             _safe_state(config.get("humidity_entity", "")),
@@ -1226,7 +1278,7 @@ async def create_calendar_event(child_id: int, request: Request):
 
 @app.post("/api/room-light/{child_id}/toggle")
 async def toggle_room_light(child_id: int):
-    entity_id = ROOM_ENTITIES.get(child_id, {}).get("light_entity", "")
+    entity_id = _room_config_for_child(child_id).get("light_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No light configured for child {child_id}")
     await _call_ha_service("homeassistant.toggle", {"entity_id": entity_id})
@@ -1236,7 +1288,7 @@ async def toggle_room_light(child_id: int):
 
 @app.get("/api/room-camera/{child_id}")
 async def room_camera(child_id: int):
-    entity_id = ROOM_ENTITIES.get(child_id, {}).get("camera_entity", "")
+    entity_id = _room_config_for_child(child_id).get("camera_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No camera configured for child {child_id}")
     _require_home_assistant_api()
