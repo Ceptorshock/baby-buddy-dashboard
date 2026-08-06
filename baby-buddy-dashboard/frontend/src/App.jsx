@@ -22,6 +22,8 @@ import NowPanel from "./components/NowPanel";
 import AlertsPanel from "./components/AlertsPanel";
 import RoomCard from "./components/RoomCard";
 import CalendarCard from "./components/CalendarCard";
+import CalendarManagerModal from "./components/CalendarManagerModal";
+import CalendarDeleteModal from "./components/CalendarDeleteModal";
 import UndoToast from "./components/UndoToast";
 import { api } from "./api";
 import "./styles.css";
@@ -321,6 +323,9 @@ export default function App() {
               <CalendarCard
                 status={data.calendarStatus}
                 onAddEvent={() => setModal({ type: "calendar" })}
+                onOpenCalendar={() => setModal({ type: "calendar-manager" })}
+                onEditEvent={(event) => setModal({ type: "calendar", entry: event })}
+                onDeleteEvent={(event) => setModal({ type: "calendar-delete", entry: event })}
               />
             </div>
           <OverviewTab
@@ -518,10 +523,27 @@ export default function App() {
         <CalendarForm
           childId={data.child?.id}
           childName={data.child?.first_name}
-          onDone={async () => {
-            closeModal();
-            await data.refreshCalendars();
-          }}
+          entry={modal.entry}
+          initialDate={modal.initialDate}
+          onDone={async () => { closeModal(); await data.refreshCalendars(); }}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "calendar-manager" && (
+        <CalendarManagerModal
+          childName={data.child?.first_name}
+          status={data.calendarStatus}
+          onAdd={(date) => setModal({ type: "calendar", initialDate: date || null })}
+          onEdit={(event) => setModal({ type: "calendar", entry: event })}
+          onDelete={(event) => setModal({ type: "calendar-delete", entry: event })}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "calendar-delete" && (
+        <CalendarDeleteModal
+          childId={data.child?.id}
+          event={modal.entry}
+          onDone={async () => { closeModal(); await data.refreshCalendars(); }}
           onClose={closeModal}
         />
       )}

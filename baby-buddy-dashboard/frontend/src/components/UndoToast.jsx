@@ -5,7 +5,7 @@ export default function UndoToast({ item, busy, message, onUndo, onDismiss }) {
   return (
     <div className={`undo-toast${message ? " undo-toast-warning" : ""}`}>
       <div>
-        <strong>{message || `${item.label} registrado`}</strong>
+        <strong>{message || item?.successMessage || `${item.label} registrado`}</strong>
         {!message && <span>Puedes deshacerlo durante unos segundos.</span>}
       </div>
       {!message && (

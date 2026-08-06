@@ -44,7 +44,17 @@ export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeCha
       } else {
         data.child = childId;
         const created = await api.createChange(data);
-        onDone({ type: "diaper", id: created.id, label: "Pañal", childId, diaper_size: selectedSize || diaperSize?.state || "" });
+        const grocy = created?._grocy;
+        onDone({
+          type: "diaper",
+          id: created.id,
+          label: "Pañal",
+          childId,
+          diaper_size: selectedSize || diaperSize?.state || "",
+          successMessage: grocy?.consumed
+            ? `Pañal registrado · Grocy descontado (${grocy.size})`
+            : "Pañal registrado · descuento de Grocy pendiente",
+        });
       }
       if (isEdit) onDone();
     } catch {

@@ -53,8 +53,8 @@ export default function RoomCard({ childId, status, onToggleLight }) {
             title={lightOn ? "Apagar luz" : "Encender luz"}
           >
             <span className="room-reading-icon"><Icons.Light /></span>
-            <strong>{lightBusy ? (lightOn ? "Encendiendo…" : "Apagando…") : lightOn ? "Encendida" : "Apagada"}</strong>
-            <small>Luz</small>
+            <strong>{lightOn ? "Encendida" : "Apagada"}</strong>
+            <small>{lightBusy ? "Actualizando…" : "Luz"}</small>
           </button>
         ) : (
           <div className="room-reading">

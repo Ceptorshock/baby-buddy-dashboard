@@ -9,8 +9,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import httpx
+import websockets
 
 # --- Configuration ---
 
@@ -65,7 +66,7 @@ def _load_diaper_size_entities(options: dict) -> dict[int, str]:
     result = _load_child_entity_map(options, "diaper_size_entities", "entity_id")
     if not result:
         result[1] = "input_select.bollito_talla_panal"
-        result[2] = "input_select.bebe_2_talla_panal"
+        result[2] = "input_select.bollito2_talla_panal"
     return result
 
 
@@ -187,6 +188,8 @@ except (TypeError, ValueError):
     SHARED_ROOM_CHILD_ID = 0
 CALENDAR_DAYS_AHEAD = max(1, int(OPTIONS.get("calendar_days_ahead", 90) or 90))
 CALENDAR_MAX_EVENTS = max(1, int(OPTIONS.get("calendar_max_events", 4) or 4))
+CALENDAR_FULL_MAX_EVENTS = max(10, int(OPTIONS.get("calendar_full_max_events", 200) or 200))
+GROCY_CONSUME_SERVICE = str(OPTIONS.get("grocy_consume_service", "rest_command.grocy_consumir_panal") or "").strip()
 GROCY_RESTORE_SERVICE = str(OPTIONS.get("grocy_restore_service", "") or "").strip()
 GROCY_STOCK_ENTITY = str(OPTIONS.get("grocy_stock_entity", "sensor.grocy_stock_por_ubicacion") or "").strip()
 HOME_ASSISTANT_ALERT_NOTIFICATIONS = bool(OPTIONS.get("home_assistant_alert_notifications", True))
@@ -324,6 +327,96 @@ async def _call_ha_service(service_name: str, data: dict) -> list | dict:
         return {}
 
 
+async def _ha_ws_command(command: dict) -> dict:
+    """Run a native Home Assistant WebSocket command through Supervisor."""
+    _require_home_assistant_api()
+    payload = dict(command)
+    payload["id"] = 1
+    try:
+        async with websockets.connect(
+            "ws://supervisor/core/websocket",
+            additional_headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
+            open_timeout=10,
+            close_timeout=5,
+            ping_interval=20,
+        ) as websocket:
+            first = json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
+            if first.get("type") == "auth_required":
+                await websocket.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
+                auth = json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
+                if auth.get("type") != "auth_ok":
+                    raise HTTPException(502, f"Home Assistant WebSocket authentication failed: {auth}")
+            elif first.get("type") != "auth_ok":
+                raise HTTPException(502, f"Unexpected Home Assistant WebSocket response: {first}")
+
+            await websocket.send(json.dumps(payload))
+            while True:
+                result = json.loads(await asyncio.wait_for(websocket.recv(), timeout=15))
+                if result.get("id") != 1:
+                    continue
+                if result.get("type") != "result":
+                    continue
+                if not result.get("success"):
+                    error = result.get("error") or {}
+                    raise HTTPException(502, error.get("message") or str(error) or "Home Assistant rejected the calendar operation")
+                return result.get("result") or {}
+    except HTTPException:
+        raise
+    except (OSError, asyncio.TimeoutError, websockets.WebSocketException) as exc:
+        raise HTTPException(502, f"Home Assistant WebSocket error: {exc}")
+
+
+async def _call_ha_service_response(service_name: str, data: dict) -> dict:
+    """Call a Home Assistant action and request its response data.
+
+    WebSocket is preferred because it is the native HA path. A REST fallback
+    keeps Grocy consumption working even if the Supervisor WebSocket proxy is
+    temporarily unavailable.
+    """
+    if "." not in service_name:
+        raise HTTPException(500, f"Invalid Home Assistant service: {service_name}")
+    domain, service = service_name.split(".", 1)
+    try:
+        result = await _ha_ws_command({
+            "type": "call_service",
+            "domain": domain,
+            "service": service,
+            "service_data": data,
+            "return_response": True,
+        })
+        response = result.get("response") if isinstance(result, dict) else None
+        if isinstance(response, dict):
+            return response
+        if isinstance(result, dict):
+            return result
+    except HTTPException as websocket_error:
+        logger.warning(
+            "WebSocket action response failed for %s; trying REST: %s",
+            service_name,
+            websocket_error.detail,
+        )
+
+    _require_home_assistant_api()
+    try:
+        response = await ha_client.post(
+            f"services/{domain}/{service}?return_response",
+            json=data,
+        )
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Home Assistant")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Home Assistant request timed out")
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    if not response.content:
+        return {}
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 async def _get_ha_services() -> set[str]:
     _require_home_assistant_api()
     try:
@@ -362,31 +455,32 @@ async def _calendar_write_capability(entity_id: str) -> dict:
         supported_features = int(attributes.get("supported_features", 0) or 0)
     except (TypeError, ValueError):
         supported_features = 0
-    # CalendarEntityFeature.CREATE_EVENT = 1.
-    writable = bool(supported_features & 1)
+
+    can_create = bool(supported_features & 1)
+    can_delete = bool(supported_features & 2)
+    can_update = bool(supported_features & 4)
     services: set[str] = set()
     try:
         services = await _get_ha_services()
     except HTTPException:
-        # The entity feature remains the best source of truth.
         pass
     available_actions = [
         action for action in ("calendar.create_event", "google.create_event")
         if action in services
     ]
-    error = ""
-    if not writable:
-        error = (
+    create_error = ""
+    if not can_create:
+        create_error = (
             f"{entity_id} está en solo lectura. En Ajustes → Dispositivos y servicios → "
             "Google Calendar → Configurar, activa el acceso de lectura y escritura y vuelve "
             "a autorizar la cuenta."
         )
-    elif services and not available_actions:
-        writable = False
-        error = "Home Assistant no expone ninguna acción para crear eventos de calendario."
     return {
-        "writable": writable,
-        "write_error": error,
+        "writable": can_create,
+        "can_create": can_create,
+        "can_update": can_update,
+        "can_delete": can_delete,
+        "write_error": create_error,
         "supported_features": supported_features,
         "available_actions": available_actions,
     }
@@ -477,6 +571,18 @@ def _calendar_start(event: dict) -> tuple[str | None, bool]:
     return None, False
 
 
+def _calendar_end(event: dict) -> tuple[str | None, bool]:
+    raw = event.get("end")
+    if isinstance(raw, dict):
+        if raw.get("dateTime"):
+            return str(raw["dateTime"]), False
+        if raw.get("date"):
+            return str(raw["date"]), True
+    if isinstance(raw, str):
+        return raw, len(raw) == 10
+    return None, False
+
+
 def _calendar_sort_key(event: dict) -> str:
     start, _ = _calendar_start(event)
     return start or "9999-12-31T23:59:59"
@@ -533,6 +639,77 @@ def _timer_child_id(timer: dict) -> int:
         return int(raw or 0)
     except (TypeError, ValueError):
         return 0
+
+
+async def _consume_diaper_for_entry(payload: dict, result: dict) -> dict:
+    """Consume one active-size diaper immediately and mark the change as processed."""
+    child_id = _entry_child_id(payload, result)
+    entry_id = result.get("id") or payload.get("id")
+    if not child_id or entry_id in (None, ""):
+        return {"consumed": False, "reason": "missing child or change id"}
+    if not GROCY_CONSUME_SERVICE:
+        return {"consumed": False, "reason": "consume service not configured"}
+
+    size_entity = DIAPER_SIZE_ENTITIES.get(child_id, "")
+    processed_entity = DIAPER_LAST_PROCESSED_ENTITIES.get(child_id, "")
+    size_state = await _safe_state(size_entity) if size_entity else None
+    size = str((size_state or {}).get("state") or "").strip()
+    product_id = DIAPER_PRODUCT_IDS.get(size)
+    if not product_id:
+        await _call_ha_service(
+            "persistent_notification.create",
+            {
+                "notification_id": f"baby_buddy_grocy_no_size_{child_id}",
+                "title": "No se pudo descontar el pañal",
+                "message": f"El cambio {entry_id} de {await _child_name(child_id)} se guardó, pero la talla activa «{size or 'sin definir'}» no tiene producto de Grocy.",
+            },
+        )
+        return {"consumed": False, "reason": "unknown size"}
+
+    try:
+        grocy_response = await _call_ha_service_response(
+            GROCY_CONSUME_SERVICE,
+            {"product_id": product_id, "amount": 1},
+        )
+        # REST commands return status/content/headers as their action response.
+        status = grocy_response.get("status") if isinstance(grocy_response, dict) else None
+        if status is None and isinstance(grocy_response.get("service_response"), dict):
+            status = grocy_response["service_response"].get("status")
+        if status is not None and int(status) not in (200, 201, 204):
+            raise HTTPException(502, f"Grocy devolvió HTTP {status}: {grocy_response.get('content', '')}")
+        if processed_entity:
+            await _call_ha_service(
+                "input_text.set_value",
+                {"entity_id": processed_entity, "value": str(entry_id)},
+            )
+        if GROCY_STOCK_ENTITY:
+            try:
+                await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
+            except HTTPException:
+                pass
+        for notification_id in (
+            f"baby_buddy_grocy_no_size_{child_id}",
+            f"baby_buddy_grocy_error_{child_id}",
+        ):
+            try:
+                await _call_ha_service("persistent_notification.dismiss", {"notification_id": notification_id})
+            except HTTPException:
+                pass
+        return {"consumed": True, "size": size, "product_id": product_id}
+    except HTTPException as exc:
+        try:
+            await _call_ha_service(
+                "persistent_notification.create",
+                {
+                    "notification_id": f"baby_buddy_grocy_error_{child_id}",
+                    "title": "Error al descontar el pañal",
+                    "message": f"El cambio {entry_id} de {await _child_name(child_id)} se guardó, pero Grocy rechazó el consumo de {size}: {exc.detail}",
+                },
+            )
+        except HTTPException:
+            pass
+        logger.warning("No se pudo descontar el pañal %s de %s: %s", entry_id, child_id, exc.detail)
+        return {"consumed": False, "reason": str(exc.detail)}
 
 
 def _notification_id(key: str) -> str:
@@ -1026,6 +1203,8 @@ async def get_config():
         "alerts": ALERTS_CONFIG,
         "calendar_days_ahead": CALENDAR_DAYS_AHEAD,
         "calendar_max_events": CALENDAR_MAX_EVENTS,
+        "calendar_full_max_events": CALENDAR_FULL_MAX_EVENTS,
+        "grocy_consume_service": GROCY_CONSUME_SERVICE,
         "grocy_stock_entity": GROCY_STOCK_ENTITY,
         "notifications": {
             "home_assistant": HOME_ASSISTANT_ALERT_NOTIFICATIONS,
@@ -1117,7 +1296,6 @@ async def get_room_statuses():
             "temperature": temp.get("state") if temp else None,
             "humidity": humidity.get("state") if humidity else None,
             "light": light.get("state") if light else None,
-            "light_entity": config.get("light_entity", ""),
             "window": window.get("state") if window else None,
             "diaper_stock": diaper_stock.get("stock"),
             "diaper_stock_available": diaper_stock.get("available", False),
@@ -1136,14 +1314,19 @@ async def get_calendar_events():
     for child_id, entity_id in CALENDAR_ENTITIES.items():
         try:
             raw_events = await _get_calendar_events(entity_id)
-            events = []
-            for raw in raw_events[:CALENDAR_MAX_EVENTS]:
+            normalized_events = []
+            for raw in raw_events[:CALENDAR_FULL_MAX_EVENTS]:
                 start, all_day = _calendar_start(raw)
+                end, _ = _calendar_end(raw)
                 if not start:
                     continue
-                events.append({
+                normalized_events.append({
+                    "uid": str(raw.get("uid") or "").strip(),
+                    "recurrence_id": str(raw.get("recurrence_id") or "").strip(),
+                    "rrule": str(raw.get("rrule") or "").strip(),
                     "summary": str(raw.get("summary") or "Cita"),
                     "start": start,
+                    "end": end or start,
                     "all_day": all_day,
                     "location": str(raw.get("location") or "").strip(),
                     "description": str(raw.get("description") or "").strip(),
@@ -1153,7 +1336,8 @@ async def get_calendar_events():
                 "configured": True,
                 "available": True,
                 "entity_id": entity_id,
-                "events": events,
+                "events": normalized_events[:CALENDAR_MAX_EVENTS],
+                "all_events": normalized_events,
                 **capability,
             }
         except HTTPException as exc:
@@ -1162,6 +1346,7 @@ async def get_calendar_events():
                 "available": False,
                 "entity_id": entity_id,
                 "events": [],
+                "all_events": [],
                 "error": exc.detail,
             }
     return {"available": bool(SUPERVISOR_TOKEN), "calendars": calendars}
@@ -1172,22 +1357,56 @@ async def create_calendar_event(child_id: int, request: Request):
     entity_id = CALENDAR_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No calendar configured for child {child_id}")
-
     capability = await _calendar_write_capability(entity_id)
-    if not capability.get("writable"):
+    if not capability.get("can_create"):
         raise HTTPException(409, capability.get("write_error") or "Calendar is read-only")
-
     try:
         payload = await request.json()
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON body")
+    event = _calendar_event_payload(payload)
 
+    used_method = "websocket"
+    try:
+        await _ha_ws_command({
+            "type": "calendar/event/create",
+            "entity_id": entity_id,
+            "event": event,
+        })
+    except HTTPException as ws_exc:
+        # Keep service fallback for older Home Assistant versions.
+        service_data = {
+            "entity_id": entity_id,
+            "summary": event["summary"],
+            "start_date_time": event["dtstart"],
+            "end_date_time": event["dtend"],
+        }
+        if event.get("location"):
+            service_data["location"] = event["location"]
+        if event.get("description"):
+            service_data["description"] = event["description"]
+        failures = [f"websocket: {ws_exc.detail}"]
+        used_method = ""
+        for action in ("calendar.create_event", "google.create_event"):
+            try:
+                await _call_ha_service(action, service_data)
+                used_method = action
+                break
+            except HTTPException as exc:
+                failures.append(f"{action}: {exc.detail}")
+        if not used_method:
+            raise HTTPException(502, " | ".join(failures))
+
+    await _refresh_calendar_entity(entity_id)
+    return {"created": True, "verified": True, "service": used_method, "entity_id": entity_id, **event}
+
+
+def _calendar_event_payload(payload: dict) -> dict:
     summary = str(payload.get("summary") or "").strip()
-    start_date_time = str(payload.get("start_date_time") or "").strip()
-    end_date_time = str(payload.get("end_date_time") or "").strip()
+    start_date_time = str(payload.get("start_date_time") or payload.get("dtstart") or "").strip()
+    end_date_time = str(payload.get("end_date_time") or payload.get("dtend") or "").strip()
     location = str(payload.get("location") or "").strip()
     description = str(payload.get("description") or "").strip()
-
     if not summary:
         raise HTTPException(400, "Falta el título de la cita")
     if not start_date_time or not end_date_time:
@@ -1199,82 +1418,84 @@ async def create_calendar_event(child_id: int, request: Request):
         raise HTTPException(400, "La fecha o la hora no son válidas")
     if end_value <= start_value:
         raise HTTPException(400, "La hora final debe ser posterior a la inicial")
-
-    service_data = {
-        "entity_id": entity_id,
-        "summary": summary,
-        "start_date_time": start_date_time,
-        "end_date_time": end_date_time,
-    }
+    event = {"summary": summary, "dtstart": start_date_time, "dtend": end_date_time}
     if location:
-        service_data["location"] = location
+        event["location"] = location
     if description:
-        service_data["description"] = description
+        event["description"] = description
+    return event
 
-    available_actions = capability.get("available_actions") or []
-    action_order = [
-        action for action in ("calendar.create_event", "google.create_event")
-        if action in available_actions
-    ]
-    # Older Home Assistant versions may not expose service metadata reliably.
-    if not action_order:
-        action_order = ["calendar.create_event", "google.create_event"]
 
-    failures: list[str] = []
-    used_action = ""
-    for action in action_order:
-        try:
-            await _call_ha_service(action, service_data)
-            used_action = action
-            break
-        except HTTPException as exc:
-            failures.append(f"{action}: {exc.detail}")
-
-    if not used_action:
-        detail = " | ".join(failures) or "Home Assistant rejected the calendar event"
-        raise HTTPException(502, detail)
-
-    # Ask Home Assistant to refresh the calendar and verify the new item. Google can
-    # take a few seconds to expose a just-created event, so retry briefly.
+async def _refresh_calendar_entity(entity_id: str):
     try:
         await _call_ha_service("homeassistant.update_entity", {"entity_id": entity_id})
     except HTTPException:
         pass
+    await asyncio.sleep(0.35)
 
-    verified = False
-    normalized_start = start_value.replace(tzinfo=None).isoformat(timespec="seconds")
-    for delay in (0.4, 1.0, 1.8):
-        await asyncio.sleep(delay)
-        try:
-            events = await _get_calendar_events(entity_id)
-        except HTTPException:
-            continue
-        for event in events:
-            event_start, _ = _calendar_start(event)
-            if not event_start:
-                continue
-            try:
-                event_start_value = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
-                event_start_normalized = event_start_value.replace(tzinfo=None).isoformat(timespec="seconds")
-            except ValueError:
-                event_start_normalized = str(event_start)
-            if str(event.get("summary") or "").strip() == summary and event_start_normalized == normalized_start:
-                verified = True
-                break
-        if verified:
-            break
 
-    return {
-        "created": True,
-        "verified": verified,
-        "pending_sync": not verified,
-        "service": used_action,
+@app.put("/api/calendar-events/{child_id}")
+async def update_calendar_event(child_id: int, request: Request):
+    entity_id = CALENDAR_ENTITIES.get(child_id)
+    if not entity_id:
+        raise HTTPException(404, f"No calendar configured for child {child_id}")
+    capability = await _calendar_write_capability(entity_id)
+    if not capability.get("can_update"):
+        raise HTTPException(409, "Este calendario no permite editar citas desde Home Assistant")
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+    uid = str(payload.get("uid") or "").strip()
+    if not uid:
+        raise HTTPException(400, "La cita no incluye un identificador editable")
+    event = _calendar_event_payload(payload)
+    command = {
+        "type": "calendar/event/update",
         "entity_id": entity_id,
-        "summary": summary,
-        "start": start_date_time,
-        "end": end_date_time,
-        "location": location,
+        "uid": uid,
+        "event": event,
     }
+    recurrence_id = str(payload.get("recurrence_id") or "").strip()
+    recurrence_range = str(payload.get("recurrence_range") or "").strip()
+    if recurrence_id:
+        command["recurrence_id"] = recurrence_id
+    if recurrence_range:
+        command["recurrence_range"] = recurrence_range
+    await _ha_ws_command(command)
+    await _refresh_calendar_entity(entity_id)
+    return {"updated": True, "entity_id": entity_id, "uid": uid, **event}
+
+
+@app.delete("/api/calendar-events/{child_id}")
+async def delete_calendar_event(child_id: int, request: Request):
+    entity_id = CALENDAR_ENTITIES.get(child_id)
+    if not entity_id:
+        raise HTTPException(404, f"No calendar configured for child {child_id}")
+    capability = await _calendar_write_capability(entity_id)
+    if not capability.get("can_delete"):
+        raise HTTPException(409, "Este calendario no permite borrar citas desde Home Assistant")
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+    uid = str(payload.get("uid") or "").strip()
+    if not uid:
+        raise HTTPException(400, "La cita no incluye un identificador borrable")
+    command = {
+        "type": "calendar/event/delete",
+        "entity_id": entity_id,
+        "uid": uid,
+    }
+    recurrence_id = str(payload.get("recurrence_id") or "").strip()
+    recurrence_range = str(payload.get("recurrence_range") or "").strip()
+    if recurrence_id:
+        command["recurrence_id"] = recurrence_id
+    if recurrence_range:
+        command["recurrence_range"] = recurrence_range
+    await _ha_ws_command(command)
+    await _refresh_calendar_entity(entity_id)
+    return {"deleted": True, "entity_id": entity_id, "uid": uid}
 
 
 @app.post("/api/room-light/{child_id}/toggle")
@@ -1282,33 +1503,18 @@ async def toggle_room_light(child_id: int):
     entity_id = _room_config_for_child(child_id).get("light_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No light configured for child {child_id}")
-
-    # Leer primero el estado para saber el resultado esperado. Usar turn_on/turn_off
-    # evita que dos pulsaciones o una actualización tardía inviertan el resultado.
     current = await _get_ha_state(entity_id)
-    current_state = str(current.get("state", "off")).lower()
-    target_state = "off" if current_state == "on" else "on"
-    await _call_ha_service(
-        f"homeassistant.turn_{target_state}",
-        {"entity_id": entity_id},
-    )
-
-    # Home Assistant puede tardar unas décimas en publicar el nuevo estado.
-    # Esperar a la confirmación impide devolver inmediatamente el estado antiguo.
-    updated = current
-    confirmed = False
-    for _ in range(15):
-        await asyncio.sleep(0.12)
+    target_state = "off" if current.get("state") == "on" else "on"
+    service = "homeassistant.turn_off" if target_state == "off" else "homeassistant.turn_on"
+    await _call_ha_service(service, {"entity_id": entity_id})
+    observed = target_state
+    for delay in (0.08, 0.18, 0.35, 0.6):
+        await asyncio.sleep(delay)
         updated = await _get_ha_state(entity_id)
-        if str(updated.get("state", "")).lower() == target_state:
-            confirmed = True
+        observed = updated.get("state")
+        if observed == target_state:
             break
-
-    return {
-        "state": target_state if not confirmed else updated.get("state"),
-        "entity_id": entity_id,
-        "confirmed": confirmed,
-    }
+    return {"state": target_state if observed not in ("on", "off") else observed, "entity_id": entity_id}
 
 
 @app.get("/api/room-camera/{child_id}")
@@ -1461,23 +1667,31 @@ async def proxy_baby_buddy(path: str, request: Request):
         raise HTTPException(502, "Cannot connect to Baby Buddy")
     except httpx.TimeoutException:
         raise HTTPException(504, "Baby Buddy request timed out")
-    if (
-        request.method == "POST"
-        and 200 <= response.status_code < 300
-        and TELEGRAM_ACTIVITY_NOTIFICATIONS
-        and TELEGRAM_CHAT_ID not in ("", 0)
-    ):
+    modified_response_payload: dict | None = None
+    if request.method == "POST" and 200 <= response.status_code < 300:
         try:
             response_payload = response.json()
         except json.JSONDecodeError:
             response_payload = {}
         if isinstance(response_payload, dict):
-            asyncio.create_task(
-                _notify_created_entry(path, request_payload, response_payload)
-            )
+            resource = path.strip("/").split("/", 1)[0]
+            if resource == "changes":
+                grocy_result = await _consume_diaper_for_entry(request_payload, response_payload)
+                response_payload["_grocy"] = grocy_result
+                modified_response_payload = response_payload
+            if TELEGRAM_ACTIVITY_NOTIFICATIONS and TELEGRAM_CHAT_ID not in ("", 0):
+                asyncio.create_task(
+                    _notify_created_entry(path, request_payload, response_payload)
+                )
 
     excluded_headers = {"transfer-encoding", "content-encoding", "content-length", "connection", "server"}
     response_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded_headers}
+    if modified_response_payload is not None:
+        return JSONResponse(
+            content=modified_response_payload,
+            status_code=response.status_code,
+            headers=response_headers,
+        )
     return Response(content=response.content, status_code=response.status_code, headers=response_headers)
 
 

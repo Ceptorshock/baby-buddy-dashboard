@@ -1,6 +1,6 @@
 import { Icons } from "./Icons";
 
-export default function Modal({ title, children, onClose }) {
+export default function Modal({ title, children, onClose, maxWidth = 400 }) {
   return (
     <div
       style={{
@@ -22,7 +22,8 @@ export default function Modal({ title, children, onClose }) {
           border: "1px solid var(--border)",
           borderRadius: 16,
           width: "100%",
-          maxWidth: 400,
+          maxWidth,
+          maxHeight: "92vh",
           overflow: "hidden",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -52,7 +53,7 @@ export default function Modal({ title, children, onClose }) {
             <Icons.X />
           </button>
         </div>
-        <div style={{ padding: "20px" }}>{children}</div>
+        <div style={{ padding: "20px", overflowY: "auto", maxHeight: "calc(92vh - 62px)" }}>{children}</div>
       </div>
     </div>
   );

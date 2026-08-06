@@ -1,3 +1,5 @@
+# Baby Buddy Dashboard ES17
+
 # Baby Buddy Dashboard
 
 A modern, responsive dashboard for [Baby Buddy](https://github.com/babybuddy/babybuddy), built as a Home Assistant add-on. Provides a clean interface for viewing and logging baby care activities - feedings, sleep, diaper changes, tummy time, temperature, growth, and more.

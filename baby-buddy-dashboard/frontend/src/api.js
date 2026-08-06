@@ -178,6 +178,34 @@ export const api = {
     }
     return response.json();
   },
+  updateCalendarEvent: async (childId, data) => {
+    const response = await fetch(`${CALENDAR_EVENTS_PATH}/${childId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || parsed.message || text; } catch {}
+      throw new Error(`Calendar API error ${response.status}: ${detail}`);
+    }
+    return response.json();
+  },
+  deleteCalendarEvent: async (childId, data) => {
+    const response = await fetch(`${CALENDAR_EVENTS_PATH}/${childId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || parsed.message || text; } catch {}
+      throw new Error(`Calendar API error ${response.status}: ${detail}`);
+    }
+    return response.json();
+  },
 
   // Undo a newly-created Baby Buddy entry. Diapers also request stock restoration.
   undoEntry: async (entry) => {
