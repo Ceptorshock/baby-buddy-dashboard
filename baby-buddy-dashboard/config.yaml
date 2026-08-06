@@ -49,8 +49,8 @@ options:
       entity_id: input_select.bollito_talla_panal
       last_processed_entity: input_text.bollito_ultimo_panal_enviado_a_grocy
     - child_id: 2
-      entity_id: input_select.bebe_2_talla_panal
-      last_processed_entity: input_text.bebe_2_ultimo_panal_enviado_a_grocy
+      entity_id: input_select.bollito2_talla_panal
+      last_processed_entity: input_text.bollito2_ultimo_panal_enviado_a_grocy
   diaper_product_ids:
     - size: Talla 0
       product_id: 40
