@@ -19,17 +19,39 @@ function eventTime(event, date) {
 export default function CalendarCard({ status, onAddEvent }) {
   if (!status?.configured) return null;
   const events = status.events || [];
+  const writable = status.writable !== false;
+  const addTitle = writable
+    ? `Añadir cita en ${status.entity_id || "el calendario"}`
+    : (status.write_error || "El calendario está configurado como solo lectura");
+
+  const addButton = (
+    <button
+      className="calendar-add-btn calendar-add-btn-header"
+      type="button"
+      onClick={onAddEvent}
+      disabled={!writable}
+      title={addTitle}
+      aria-label="Añadir cita"
+    >
+      <Icons.Plus />
+      <span>Añadir cita</span>
+    </button>
+  );
 
   return (
-    <SectionCard title="Próximas citas" icon={<Icons.Calendar />} color="#8B5CF6">
-      <div className="calendar-actions-row">
-        <button className="calendar-add-btn" type="button" onClick={onAddEvent}>
-          <Icons.Plus />
-          <span>Añadir cita</span>
-        </button>
-      </div>
+    <SectionCard
+      title="Próximas citas"
+      icon={<Icons.Calendar />}
+      color="#8B5CF6"
+      headerAction={addButton}
+    >
       {!status.available ? (
         <div className="calendar-empty">No se pudo consultar el calendario.</div>
+      ) : !writable ? (
+        <div className="calendar-readonly-warning">
+          <strong>Calendario en solo lectura.</strong>
+          <span>{status.write_error || "Activa el acceso de lectura y escritura en Google Calendar."}</span>
+        </div>
       ) : events.length === 0 ? (
         <div className="calendar-empty">No hay citas próximas.</div>
       ) : (

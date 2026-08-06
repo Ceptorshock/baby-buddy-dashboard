@@ -148,7 +148,14 @@ export const api = {
     const response = await fetch(CALENDAR_EVENTS_PATH);
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Calendar API error ${response.status}: ${text}`);
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text);
+        detail = parsed.detail || parsed.message || text;
+      } catch {
+        // Keep the raw response when it is not JSON.
+      }
+      throw new Error(`Calendar API error ${response.status}: ${detail}`);
     }
     return response.json();
   },
@@ -160,7 +167,14 @@ export const api = {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Calendar API error ${response.status}: ${text}`);
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text);
+        detail = parsed.detail || parsed.message || text;
+      } catch {
+        // Keep the raw response when it is not JSON.
+      }
+      throw new Error(`Calendar API error ${response.status}: ${detail}`);
     }
     return response.json();
   },

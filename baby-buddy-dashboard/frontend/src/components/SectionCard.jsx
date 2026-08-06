@@ -1,4 +1,4 @@
-export default function SectionCard({ title, icon, children, color }) {
+export default function SectionCard({ title, icon, children, color, headerAction }) {
   return (
     <div
       style={{
@@ -28,6 +28,7 @@ export default function SectionCard({ title, icon, children, color }) {
             alignItems: "center",
             justifyContent: "center",
             fontSize: 14,
+            flex: "0 0 auto",
           }}
         >
           {icon}
@@ -38,10 +39,16 @@ export default function SectionCard({ title, icon, children, color }) {
             fontWeight: 600,
             color: "var(--text)",
             letterSpacing: "-0.01em",
+            minWidth: 0,
           }}
         >
           {title}
         </span>
+        {headerAction && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
+            {headerAction}
+          </div>
+        )}
       </div>
       <div style={{ padding: "16px 20px" }}>{children}</div>
     </div>

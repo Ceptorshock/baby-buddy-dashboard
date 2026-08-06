@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "1.6.0-es14"
+version: "1.7.0-es15"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con citas editables, avisos móviles múltiples, stock dinámico de pañales, Telegram, habitación, deshacer y resúmenes."
+description: "Panel en castellano para Baby Buddy con citas editables y verificadas, avisos móviles múltiples, stock dinámico de pañales, Telegram, habitación, deshacer y resúmenes."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"

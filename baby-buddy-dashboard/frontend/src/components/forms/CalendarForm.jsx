@@ -28,10 +28,12 @@ export default function CalendarForm({ childId, childName, onDone, onClose }) {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const submit = async (event) => {
     event.preventDefault();
     setError("");
+    setSuccess("");
     if (!summary.trim() || !date || !time) {
       setError("Indica qué cita es, la fecha y la hora.");
       return;
@@ -51,7 +53,12 @@ export default function CalendarForm({ childId, childName, onDone, onClose }) {
         location: location.trim(),
         description: description.trim(),
       });
-      onDone(created);
+      setSuccess(
+        created?.verified
+          ? "Cita creada y comprobada en el calendario."
+          : "Cita enviada a Google Calendar. Puede tardar unos segundos en aparecer."
+      );
+      window.setTimeout(() => onDone(created), 900);
     } catch (err) {
       setError(`No se pudo crear la cita: ${err.message}`);
     } finally {
@@ -109,6 +116,7 @@ export default function CalendarForm({ childId, childName, onDone, onClose }) {
           />
         </FormField>
         {error && <div className="calendar-form-error">{error}</div>}
+        {success && <div className="calendar-form-success">{success}</div>}
         <FormButton type="submit" color="#8B5CF6" disabled={saving} style={{ color: "white", opacity: saving ? 0.65 : 1 }}>
           {saving ? "Guardando…" : "Guardar cita"}
         </FormButton>

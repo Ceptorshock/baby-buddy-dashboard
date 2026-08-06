@@ -291,6 +291,74 @@ async def _call_ha_service(service_name: str, data: dict) -> list | dict:
         return {}
 
 
+async def _get_ha_services() -> set[str]:
+    _require_home_assistant_api()
+    try:
+        response = await ha_client.get("services")
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Home Assistant")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Home Assistant request timed out")
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    result: set[str] = set()
+    payload = response.json()
+    if isinstance(payload, list):
+        for domain_item in payload:
+            if not isinstance(domain_item, dict):
+                continue
+            domain = str(domain_item.get("domain") or "").strip()
+            services = domain_item.get("services", [])
+            if isinstance(services, dict):
+                names = services.keys()
+            elif isinstance(services, list):
+                names = services
+            else:
+                names = []
+            for service in names:
+                service_name = str(service or "").strip()
+                if domain and service_name:
+                    result.add(f"{domain}.{service_name}")
+    return result
+
+
+async def _calendar_write_capability(entity_id: str) -> dict:
+    state = await _get_ha_state(entity_id)
+    attributes = state.get("attributes", {}) or {}
+    try:
+        supported_features = int(attributes.get("supported_features", 0) or 0)
+    except (TypeError, ValueError):
+        supported_features = 0
+    # CalendarEntityFeature.CREATE_EVENT = 1.
+    writable = bool(supported_features & 1)
+    services: set[str] = set()
+    try:
+        services = await _get_ha_services()
+    except HTTPException:
+        # The entity feature remains the best source of truth.
+        pass
+    available_actions = [
+        action for action in ("calendar.create_event", "google.create_event")
+        if action in services
+    ]
+    error = ""
+    if not writable:
+        error = (
+            f"{entity_id} está en solo lectura. En Ajustes → Dispositivos y servicios → "
+            "Google Calendar → Configurar, activa el acceso de lectura y escritura y vuelve "
+            "a autorizar la cuenta."
+        )
+    elif services and not available_actions:
+        writable = False
+        error = "Home Assistant no expone ninguna acción para crear eventos de calendario."
+    return {
+        "writable": writable,
+        "write_error": error,
+        "supported_features": supported_features,
+        "available_actions": available_actions,
+    }
+
+
 async def _safe_state(entity_id: str) -> dict | None:
     if not entity_id:
         return None
@@ -1027,11 +1095,13 @@ async def get_calendar_events():
                     "location": str(raw.get("location") or "").strip(),
                     "description": str(raw.get("description") or "").strip(),
                 })
+            capability = await _calendar_write_capability(entity_id)
             calendars[str(child_id)] = {
                 "configured": True,
                 "available": True,
                 "entity_id": entity_id,
                 "events": events,
+                **capability,
             }
         except HTTPException as exc:
             calendars[str(child_id)] = {
@@ -1049,6 +1119,11 @@ async def create_calendar_event(child_id: int, request: Request):
     entity_id = CALENDAR_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No calendar configured for child {child_id}")
+
+    capability = await _calendar_write_capability(entity_id)
+    if not capability.get("writable"):
+        raise HTTPException(409, capability.get("write_error") or "Calendar is read-only")
+
     try:
         payload = await request.json()
     except json.JSONDecodeError:
@@ -1061,16 +1136,16 @@ async def create_calendar_event(child_id: int, request: Request):
     description = str(payload.get("description") or "").strip()
 
     if not summary:
-        raise HTTPException(400, "Missing event summary")
+        raise HTTPException(400, "Falta el título de la cita")
     if not start_date_time or not end_date_time:
-        raise HTTPException(400, "Missing event start or end")
+        raise HTTPException(400, "Falta la fecha de inicio o de fin")
     try:
         start_value = datetime.fromisoformat(start_date_time.replace("Z", "+00:00"))
         end_value = datetime.fromisoformat(end_date_time.replace("Z", "+00:00"))
     except ValueError:
-        raise HTTPException(400, "Invalid event date/time")
+        raise HTTPException(400, "La fecha o la hora no son válidas")
     if end_value <= start_value:
-        raise HTTPException(400, "Event end must be after its start")
+        raise HTTPException(400, "La hora final debe ser posterior a la inicial")
 
     service_data = {
         "entity_id": entity_id,
@@ -1083,16 +1158,64 @@ async def create_calendar_event(child_id: int, request: Request):
     if description:
         service_data["description"] = description
 
-    try:
-        await _call_ha_service("google.create_event", service_data)
-    except HTTPException as google_error:
-        # Newer generic calendar entities may expose calendar.create_event.
+    available_actions = capability.get("available_actions") or []
+    action_order = [
+        action for action in ("calendar.create_event", "google.create_event")
+        if action in available_actions
+    ]
+    # Older Home Assistant versions may not expose service metadata reliably.
+    if not action_order:
+        action_order = ["calendar.create_event", "google.create_event"]
+
+    failures: list[str] = []
+    used_action = ""
+    for action in action_order:
         try:
-            await _call_ha_service("calendar.create_event", service_data)
+            await _call_ha_service(action, service_data)
+            used_action = action
+            break
+        except HTTPException as exc:
+            failures.append(f"{action}: {exc.detail}")
+
+    if not used_action:
+        detail = " | ".join(failures) or "Home Assistant rejected the calendar event"
+        raise HTTPException(502, detail)
+
+    # Ask Home Assistant to refresh the calendar and verify the new item. Google can
+    # take a few seconds to expose a just-created event, so retry briefly.
+    try:
+        await _call_ha_service("homeassistant.update_entity", {"entity_id": entity_id})
+    except HTTPException:
+        pass
+
+    verified = False
+    normalized_start = start_value.replace(tzinfo=None).isoformat(timespec="seconds")
+    for delay in (0.4, 1.0, 1.8):
+        await asyncio.sleep(delay)
+        try:
+            events = await _get_calendar_events(entity_id)
         except HTTPException:
-            raise google_error
+            continue
+        for event in events:
+            event_start, _ = _calendar_start(event)
+            if not event_start:
+                continue
+            try:
+                event_start_value = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
+                event_start_normalized = event_start_value.replace(tzinfo=None).isoformat(timespec="seconds")
+            except ValueError:
+                event_start_normalized = str(event_start)
+            if str(event.get("summary") or "").strip() == summary and event_start_normalized == normalized_start:
+                verified = True
+                break
+        if verified:
+            break
+
     return {
         "created": True,
+        "verified": verified,
+        "pending_sync": not verified,
+        "service": used_action,
         "entity_id": entity_id,
         "summary": summary,
         "start": start_date_time,
