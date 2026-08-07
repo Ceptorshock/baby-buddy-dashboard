@@ -14,6 +14,18 @@ configuration:
   unit_system:
     name: Sistema de unidades
     description: "Unidades de medida: métrico (kg, cm, mL, °C) o imperial (lb, in, oz, °F)"
+  bollito2_enabled:
+    name: Bollito2 habilitado
+    description: "Activa Bollito2 en toda la aplicación. Déjalo apagado hasta que necesitéis usar el segundo bebé."
+  disabled_child_ids:
+    name: Otros bebés deshabilitados (avanzado)
+    description: "Opcional. IDs adicionales que la app debe ignorar, separados por comas. Para Bollito2 usa el interruptor anterior."
+  medication_alert_enabled:
+    name: Avisos de medicación
+    description: "Avisa cuando llega la próxima hora calculada según el intervalo registrado en el medicamento"
+  medication_alert_minutes_before:
+    name: Antelación del aviso de medicación
+    description: "Minutos antes de la próxima dosis para avisar. Usa 0 para avisar a la hora exacta"
   diaper_size_entities:
     name: Tallas de pañal por bebé
     description: "Relaciona el ID de cada niño de Baby Buddy con su ayudante input_select de talla en Home Assistant"

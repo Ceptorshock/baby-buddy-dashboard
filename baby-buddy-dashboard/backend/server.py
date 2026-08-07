@@ -357,6 +357,36 @@ def _parse_service_list(value) -> list[str]:
     return result
 
 
+def _parse_int_set(value) -> set[int]:
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[,\n; ]+", str(value or ""))
+    result: set[int] = set()
+    for item in raw_items:
+        try:
+            parsed = int(str(item).strip())
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            result.add(parsed)
+    return result
+
+
+def _interval_seconds(value) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    parts = text.split(":")
+    try:
+        hours = int(parts[0] or 0) if len(parts) > 0 else 0
+        minutes = int(parts[1] or 0) if len(parts) > 1 else 0
+        seconds = int(float(parts[2] or 0)) if len(parts) > 2 else 0
+    except (TypeError, ValueError):
+        return 0
+    return max(0, hours * 3600 + minutes * 60 + seconds)
+
+
 OPTIONS = _load_options()
 if not BABY_BUDDY_URL:
     BABY_BUDDY_URL = OPTIONS.get("baby_buddy_url", "").rstrip("/")
@@ -377,6 +407,14 @@ DIAPER_PRODUCT_IDS = _load_diaper_product_ids(OPTIONS)
 ROOM_ENTITIES = _load_room_entities(OPTIONS)
 CALENDAR_ENTITIES = _load_calendar_entities(OPTIONS)
 CHILD_NAMES = _load_child_names(OPTIONS)
+DISABLED_CHILD_IDS = _parse_int_set(OPTIONS.get("disabled_child_ids", ""))
+# Interruptor sencillo para el segundo bebé. Tiene prioridad sobre la lista avanzada
+# para que pueda activarse/desactivarse desde la configuración sin conocer su ID.
+BOLLITO2_ENABLED = bool(OPTIONS.get("bollito2_enabled", False))
+if BOLLITO2_ENABLED:
+    DISABLED_CHILD_IDS.discard(2)
+else:
+    DISABLED_CHILD_IDS.add(2)
 try:
     SHARED_ROOM_CHILD_ID = int(OPTIONS.get("shared_room_child_id", 0) or 0)
 except (TypeError, ValueError):
@@ -422,6 +460,8 @@ ALERTS_CONFIG = {
     "room_temp_min": float(OPTIONS.get("room_temp_min", 18) or 18),
     "room_temp_max": float(OPTIONS.get("room_temp_max", 27) or 27),
     "diaper_stock_low_threshold": int(OPTIONS.get("diaper_stock_low_threshold", 10) or 10),
+    "medication_alert_enabled": bool(OPTIONS.get("medication_alert_enabled", True)),
+    "medication_alert_minutes_before": max(0, int(OPTIONS.get("medication_alert_minutes_before", 0) or 0)),
 }
 NIGHT_MODE_CONFIG = {
     "enabled": bool(OPTIONS.get("night_mode_enabled", True)),
@@ -938,6 +978,10 @@ def _coerce_child_id(value) -> int:
         return 0
 
 
+def _child_enabled(child_id: int) -> bool:
+    return int(child_id or 0) not in DISABLED_CHILD_IDS
+
+
 def _room_config_for_child(child_id: int) -> dict[str, str]:
     config = ROOM_ENTITIES.get(child_id)
     if config:
@@ -1093,6 +1137,8 @@ async def _notify_created_entry(resource: str, payload: dict, result: dict):
         return
 
     child_id = _entry_child_id(payload, result)
+    if child_id > 0 and not _child_enabled(child_id):
+        return
     child_name = await _child_name(child_id)
     combined = {**payload, **result}
     message = ""
@@ -1300,6 +1346,8 @@ async def _collect_alerts() -> list[dict]:
             child_id = int(child.get("id"))
         except (TypeError, ValueError):
             continue
+        if not _child_enabled(child_id):
+            continue
         child_name = await _child_name(child_id)
 
         feedings = await _baby_buddy_results(
@@ -1338,6 +1386,46 @@ async def _collect_alerts() -> list[dict]:
                     "title": f"Actividad larga · {child_name}",
                     "message": f"El temporizador «{timer_name}» lleva {elapsed_minutes} minutos activo.",
                     "alexa_message": f"Aviso. La actividad {timer_name} de {child_name} lleva {elapsed_minutes} minutos activa.",
+                })
+
+        if ALERTS_CONFIG.get("medication_alert_enabled"):
+            medications = await _baby_buddy_results(
+                "medication",
+                {"child": child_id, "limit": 50, "ordering": "-time"},
+            )
+            latest_by_name: dict[str, dict] = {}
+            for medication in medications:
+                name_key = str(medication.get("name") or "").strip().casefold()
+                if not name_key or name_key in latest_by_name:
+                    continue
+                latest_by_name[name_key] = medication
+            for medication in latest_by_name.values():
+                interval_seconds = _interval_seconds(medication.get("next_dose_interval"))
+                administered = _parse_datetime(medication.get("time"))
+                if interval_seconds <= 0 or not administered:
+                    continue
+                next_at = administered + timedelta(seconds=interval_seconds)
+                alert_at = next_at - timedelta(minutes=ALERTS_CONFIG.get("medication_alert_minutes_before", 0))
+                if now < alert_at.astimezone(timezone.utc):
+                    continue
+                med_name = str(medication.get("name") or "Medicamento").strip() or "Medicamento"
+                dosage = medication.get("dosage")
+                unit = str(medication.get("dosage_unit") or "").strip()
+                dose_text = ""
+                if dosage not in (None, ""):
+                    dose_text = f" · {dosage} {unit}".rstrip()
+                due_text = next_at.strftime("%H:%M")
+                advance = ALERTS_CONFIG.get("medication_alert_minutes_before", 0)
+                if advance > 0 and now < next_at.astimezone(timezone.utc):
+                    timing_text = f"está previsto a las {due_text} (en {advance} min)"
+                else:
+                    timing_text = f"estaba previsto a las {due_text}"
+                alerts.append({
+                    "key": f"medication_due:{child_id}:{medication.get('id', med_name.casefold())}",
+                    "type": "medication",
+                    "title": f"Medicamento pendiente · {child_name}",
+                    "message": f"Según la pauta registrada, {med_name}{dose_text} {timing_text}.",
+                    "alexa_message": f"Aviso. Según la pauta registrada, toca {med_name} de {child_name}.",
                 })
 
         room_config = _room_config_for_child(child_id)
@@ -1403,6 +1491,8 @@ async def _alert_monitor_loop():
 
             # Clear a stale diaper warning left by an earlier app restart or size change.
             for child_id in DIAPER_SIZE_ENTITIES:
+                if not _child_enabled(child_id):
+                    continue
                 key = f"diaper_stock:{child_id}"
                 if key not in current:
                     await _dismiss_alert(key)
@@ -1426,6 +1516,8 @@ async def get_config():
         "demo_mode": DEMO_MODE,
         "unit_system": UNIT_SYSTEM,
         "default_child_id": DEFAULT_CHILD_ID,
+        "bollito2_enabled": BOLLITO2_ENABLED,
+        "disabled_child_ids": sorted(DISABLED_CHILD_IDS),
         "alerts": ALERTS_CONFIG,
         "night_mode": NIGHT_MODE_CONFIG,
         "calendar_days_ahead": CALENDAR_DAYS_AHEAD,
@@ -1474,6 +1566,8 @@ async def get_audit(child_id: int | None = None, limit: int = 200):
 async def get_diaper_sizes():
     sizes: dict[str, dict] = {}
     for child_id, entity_id in DIAPER_SIZE_ENTITIES.items():
+        if not _child_enabled(child_id):
+            continue
         try:
             state = await _get_ha_state(entity_id)
             attrs = state.get("attributes", {})
@@ -1499,6 +1593,8 @@ async def get_diaper_sizes():
 
 @app.post("/api/diaper-sizes/{child_id}")
 async def set_diaper_size(child_id: int, request: Request):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = DIAPER_SIZE_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No diaper-size helper configured for child {child_id}")
@@ -1534,6 +1630,8 @@ async def get_room_statuses():
     rooms: dict[str, dict] = {}
     child_ids = set(ROOM_ENTITIES) | set(DIAPER_SIZE_ENTITIES) | set(CALENDAR_ENTITIES) | set(CHILD_NAMES)
     for child_id in child_ids:
+        if not _child_enabled(child_id):
+            continue
         config = _room_config_for_child(child_id)
         temp, humidity, light, window, diaper_stock = await asyncio.gather(
             _safe_state(config.get("temperature_entity", "")),
@@ -1563,6 +1661,8 @@ async def get_room_statuses():
 async def get_calendar_events():
     calendars: dict[str, dict] = {}
     for child_id, entity_id in CALENDAR_ENTITIES.items():
+        if not _child_enabled(child_id):
+            continue
         try:
             raw_events = await _get_calendar_events(entity_id)
             normalized_events = []
@@ -1711,6 +1811,8 @@ async def _confirm_created_calendar_event(
 
 @app.post("/api/calendar-events/{child_id}")
 async def create_calendar_event(child_id: int, request: Request):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = CALENDAR_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No calendar configured for child {child_id}")
@@ -1762,6 +1864,8 @@ async def _refresh_calendar_entity(entity_id: str):
 
 @app.put("/api/calendar-events/{child_id}")
 async def update_calendar_event(child_id: int, request: Request):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = CALENDAR_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No calendar configured for child {child_id}")
@@ -1838,6 +1942,8 @@ async def update_calendar_event(child_id: int, request: Request):
 
 @app.delete("/api/calendar-events/{child_id}")
 async def delete_calendar_event(child_id: int, request: Request):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = CALENDAR_ENTITIES.get(child_id)
     if not entity_id:
         raise HTTPException(404, f"No calendar configured for child {child_id}")
@@ -1860,6 +1966,8 @@ async def delete_calendar_event(child_id: int, request: Request):
 
 @app.post("/api/room-light/{child_id}/toggle")
 async def toggle_room_light(child_id: int):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = _room_config_for_child(child_id).get("light_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No light configured for child {child_id}")
@@ -1879,6 +1987,8 @@ async def toggle_room_light(child_id: int):
 
 @app.get("/api/room-camera/{child_id}")
 async def room_camera(child_id: int):
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
     entity_id = _room_config_for_child(child_id).get("camera_entity", "")
     if not entity_id:
         raise HTTPException(404, f"No camera configured for child {child_id}")
@@ -2029,6 +2139,14 @@ async def proxy_baby_buddy(path: str, request: Request):
         except (httpx.HTTPError, json.JSONDecodeError):
             before_payload = None
 
+    mutation_child_id = 0
+    if request.method == "POST":
+        mutation_child_id = _entry_child_id(request_payload, {})
+    elif request.method in ("PATCH", "PUT", "DELETE") and isinstance(before_payload, dict):
+        mutation_child_id = _entry_child_id(before_payload, {})
+    if mutation_child_id > 0 and not _child_enabled(mutation_child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
+
     try:
         headers = {}
         if body and "application/json" in content_type:
@@ -2051,6 +2169,21 @@ async def proxy_baby_buddy(path: str, request: Request):
             response_payload = response.json()
         except json.JSONDecodeError:
             response_payload = None
+
+    if (
+        request.method == "GET"
+        and resource == "children"
+        and not entry_id
+        and isinstance(response_payload, dict)
+        and isinstance(response_payload.get("results"), list)
+        and DISABLED_CHILD_IDS
+    ):
+        response_payload["results"] = [
+            child for child in response_payload["results"]
+            if _child_enabled(_coerce_child_id(child))
+        ]
+        if isinstance(response_payload.get("count"), int):
+            response_payload["count"] = len(response_payload["results"])
 
     if 200 <= response.status_code < 300:
         if request.method == "POST" and isinstance(response_payload, dict):

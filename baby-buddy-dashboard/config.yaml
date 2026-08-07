@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.1-es18.1"
+version: "2.0.2-es18.2.1"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con modo noche automático, medicamentos, autoría por usuario de Home Assistant, auditoría, calendario editable, Grocy y Telegram."
+description: "Panel en castellano para Baby Buddy con modo noche, medicamentos y avisos de pauta, bebés deshabilitables, autoría, auditoría, calendario, Grocy y Telegram."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -31,6 +31,8 @@ options:
       name: Bollito
     - child_id: 2
       name: Bollito2
+  bollito2_enabled: false
+  disabled_child_ids: ""
   shared_room_child_id: 1
   alerts_enabled: true
   night_mode_enabled: true
@@ -41,6 +43,8 @@ options:
   room_temp_min: 18
   room_temp_max: 27
   diaper_stock_low_threshold: 10
+  medication_alert_enabled: true
+  medication_alert_minutes_before: 0
   home_assistant_alert_notifications: true
   mobile_notify_service: ""
   mobile_notify_services: ""
@@ -99,6 +103,8 @@ schema:
   child_names:
     - child_id: int
       name: str
+  bollito2_enabled: bool
+  disabled_child_ids: str
   shared_room_child_id: "int(0,9999)"
   alerts_enabled: bool
   night_mode_enabled: bool
@@ -109,6 +115,8 @@ schema:
   room_temp_min: "float(0,40)"
   room_temp_max: "float(0,40)"
   diaper_stock_low_threshold: "int(0,1000)"
+  medication_alert_enabled: bool
+  medication_alert_minutes_before: "int(0,120)"
   home_assistant_alert_notifications: bool
   mobile_notify_service: str
   mobile_notify_services: str
