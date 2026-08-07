@@ -6,6 +6,7 @@ const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
 const CURRENT_USER_PATH = "./api/current-user";
 const AUDIT_PATH = "./api/audit";
+const DASHBOARD_SETTINGS_PATH = "./api/dashboard-settings";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -241,6 +242,55 @@ export const api = {
     params.set("limit", limit);
     const response = await fetch(`${AUDIT_PATH}?${params.toString()}`);
     if (!response.ok) throw new Error(`Audit API error ${response.status}`);
+    return response.json();
+  },
+
+  // Dashboard settings: dynamic child visibility, profile editing and test reset
+  getDashboardSettings: async () => {
+    const response = await fetch(DASHBOARD_SETTINGS_PATH);
+    if (!response.ok) throw new Error(`Settings API error ${response.status}`);
+    return response.json();
+  },
+  setChildEnabled: async (childId, enabled) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/children/${childId}/enabled`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Settings API error ${response.status}`);
+    }
+    return response.json();
+  },
+  updateChildProfile: async (childId, data) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/children/${childId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Settings API error ${response.status}`);
+    }
+    return response.json();
+  },
+  clearChildHistory: async (childId, confirmation, includeAudit = true) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/children/${childId}/clear-history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmation, include_audit: includeAudit }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Settings API error ${response.status}`);
+    }
     return response.json();
   },
 

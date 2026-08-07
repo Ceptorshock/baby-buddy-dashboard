@@ -29,6 +29,7 @@ import CalendarDeleteModal from "./components/CalendarDeleteModal";
 import UndoToast from "./components/UndoToast";
 import MedicationCard from "./components/MedicationCard";
 import NightModePanel from "./components/NightModePanel";
+import SettingsModal from "./components/SettingsModal";
 import { api } from "./api";
 import "./styles.css";
 
@@ -237,8 +238,11 @@ export default function App() {
               {data.lastSync.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
-          <button className="refresh-btn" onClick={data.refetch} title="Actualizar">
+          <button className="refresh-btn" onClick={data.refetch} title="Actualizar / estado de conexión">
             <Icons.Activity />
+          </button>
+          <button className="refresh-btn settings-header-btn" onClick={() => setModal({ type: "settings" })} title="Ajustes">
+            <Icons.Settings />
           </button>
         </div>
       </header>
@@ -603,6 +607,12 @@ export default function App() {
           childId={data.child?.id}
           event={modal.entry}
           onDone={async () => { closeModal(); await data.refreshCalendars(); }}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "settings" && (
+        <SettingsModal
+          onChanged={data.refetch}
           onClose={closeModal}
         />
       )}

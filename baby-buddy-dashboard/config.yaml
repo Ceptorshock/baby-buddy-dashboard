@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.2-es18.2.1"
+version: "2.0.3-es18.3"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con modo noche, medicamentos y avisos de pauta, bebés deshabilitables, autoría, auditoría, calendario, Grocy y Telegram."
+description: "Panel en castellano para Baby Buddy con ajustes internos de bebés, limpieza de historial de pruebas, modo noche, medicamentos, auditoría, calendario, Grocy y Telegram."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -31,8 +31,6 @@ options:
       name: Bollito
     - child_id: 2
       name: Bollito2
-  bollito2_enabled: false
-  disabled_child_ids: ""
   shared_room_child_id: 1
   alerts_enabled: true
   night_mode_enabled: true
@@ -103,8 +101,6 @@ schema:
   child_names:
     - child_id: int
       name: str
-  bollito2_enabled: bool
-  disabled_child_ids: str
   shared_room_child_id: "int(0,9999)"
   alerts_enabled: bool
   night_mode_enabled: bool

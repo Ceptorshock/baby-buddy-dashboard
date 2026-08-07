@@ -675,3 +675,59 @@ body {
 .night-last-medication span:last-child { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-family: var(--mono); font-size: 15px; }
 .night-message { max-width: 760px; margin: 14px auto 0; text-align: center; color: #c27456; font-size: 12px; }
 @media (max-width: 620px) { .header-user { display: none; } .form-two-columns { grid-template-columns: 1fr; } .medication-next-dose { flex-direction: column; } .medication-next-time { text-align: left; } .night-action { min-height: 118px; } }
+
+/* ES18.3: ajustes internos de bebés y limpieza del historial de pruebas */
+.settings-header-btn { margin-left: -6px; }
+.settings-intro { display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; padding:14px; border:1px solid var(--border); border-radius:13px; background:var(--bg); }
+.settings-intro-icon { width:38px; height:38px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; border-radius:11px; background:#8b5cf615; color:#c4b5fd; }
+.settings-intro strong { display:block; color:var(--text); font-size:14px; }
+.settings-intro p { margin:4px 0 0; color:var(--text-dim); font-size:11px; line-height:1.5; }
+.settings-error,.settings-success { margin-bottom:12px; padding:10px 12px; border-radius:10px; font-size:12px; line-height:1.45; }
+.settings-error { background:#ef444414; border:1px solid #ef44443d; color:#fca5a5; }
+.settings-success { background:#22c55e12; border:1px solid #22c55e35; color:#86efac; }
+.settings-loading { color:var(--text-dim); font-size:12px; text-align:center; padding:28px 8px; }
+.settings-child-list { display:flex; flex-direction:column; gap:12px; }
+.settings-child-card { border:1px solid var(--border); border-radius:14px; background:var(--bg); overflow:hidden; }
+.settings-child-card.is-disabled { opacity:.78; }
+.settings-child-head { display:flex; align-items:center; gap:11px; padding:14px; }
+.settings-child-avatar { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#f59e0b12; color:#f59e0b; flex:0 0 auto; }
+.settings-child-title { flex:1; min-width:0; }
+.settings-child-title strong { display:block; color:var(--text); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.settings-child-title span { display:block; margin-top:3px; color:var(--text-dim); font-size:10px; }
+.settings-switch { display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none; }
+.settings-switch input { position:absolute; opacity:0; pointer-events:none; }
+.settings-switch-track { width:36px; height:20px; border-radius:999px; padding:2px; display:flex; background:#343744; transition:.18s ease; }
+.settings-switch-track span { width:16px; height:16px; border-radius:50%; background:#9ca3af; transition:.18s ease; }
+.settings-switch input:checked + .settings-switch-track { background:#22c55e50; }
+.settings-switch input:checked + .settings-switch-track span { transform:translateX(16px); background:#86efac; }
+.settings-switch input:disabled + .settings-switch-track { opacity:.45; }
+.settings-switch em { font-style:normal; font-size:10px; font-weight:700; color:var(--text-muted); min-width:38px; }
+.settings-child-actions { display:flex; gap:8px; padding:0 14px 14px; }
+.settings-child-actions button { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--card-bg); color:var(--text-muted); padding:8px 10px; border-radius:9px; font:650 11px var(--font); cursor:pointer; }
+.settings-child-actions button:hover:not(:disabled) { color:var(--text); border-color:#64748b75; }
+.settings-child-actions .settings-danger-link { margin-left:auto; color:#f87171; border-color:#ef444435; background:#ef44440b; }
+.settings-child-actions button:disabled { opacity:.45; cursor:wait; }
+.settings-editor,.settings-reset-panel { border-top:1px solid var(--border); padding:14px; background:#11131a; }
+.settings-fields-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.settings-fields-grid label > span,.settings-confirm-label { display:block; color:var(--text-muted); font-size:10px; font-weight:700; margin-bottom:5px; text-transform:uppercase; letter-spacing:.03em; }
+.settings-help { color:var(--text-dim); font-size:10px; line-height:1.5; margin:10px 0 0; }
+.settings-editor-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:13px; }
+.settings-editor-actions button { border:1px solid var(--border); border-radius:9px; background:var(--bg); color:var(--text-muted); padding:9px 12px; font:700 11px var(--font); cursor:pointer; }
+.settings-editor-actions .settings-primary { background:#f59e0b; border-color:#f59e0b; color:#111; }
+.settings-editor-actions .settings-danger-button { background:#dc2626; border-color:#dc2626; color:white; }
+.settings-editor-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.settings-danger-title { display:flex; align-items:center; gap:7px; color:#f87171; font-size:13px; font-weight:800; }
+.settings-reset-panel p { color:var(--text-muted); font-size:11px; line-height:1.55; }
+.settings-reset-panel p strong { color:var(--text); }
+.settings-check-row { display:flex; align-items:flex-start; gap:8px; color:var(--text-muted); font-size:11px; margin:12px 0; cursor:pointer; }
+.settings-check-row input { margin-top:2px; }
+.settings-confirm-label { margin-top:12px; text-transform:none; letter-spacing:0; line-height:1.5; }
+.settings-confirm-label code { color:#fca5a5; font-family:var(--mono); text-transform:none; }
+.settings-confirm-label input { margin-top:6px; }
+.settings-reset-result { margin-top:12px; padding:10px 11px; border-radius:9px; background:#22c55e0c; border:1px solid #22c55e2c; display:flex; flex-direction:column; gap:3px; color:#86efac; font-size:10px; }
+.settings-reset-result strong { font-size:12px; }
+.settings-reset-warning { color:#fbbf24; }
+.settings-footer-note { margin-top:14px; color:var(--text-dim); font-size:10px; line-height:1.5; text-align:center; }
+@media(max-width:620px){
+  .settings-child-head{align-items:flex-start}.settings-switch{flex-direction:column;gap:3px}.settings-switch em{min-width:0}.settings-child-actions{flex-direction:column}.settings-child-actions .settings-danger-link{margin-left:0}.settings-fields-grid{grid-template-columns:1fr}.settings-header-btn{margin-left:-8px}
+}

@@ -27,6 +27,7 @@ SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 logger = logging.getLogger("baby_buddy_dashboard")
 
 AUDIT_DB_PATH = Path("/data/baby_buddy_dashboard_audit.sqlite3")
+APP_SETTINGS_PATH = Path("/data/baby_buddy_dashboard_settings.json")
 
 
 def _init_audit_db():
@@ -407,14 +408,61 @@ DIAPER_PRODUCT_IDS = _load_diaper_product_ids(OPTIONS)
 ROOM_ENTITIES = _load_room_entities(OPTIONS)
 CALENDAR_ENTITIES = _load_calendar_entities(OPTIONS)
 CHILD_NAMES = _load_child_names(OPTIONS)
-DISABLED_CHILD_IDS = _parse_int_set(OPTIONS.get("disabled_child_ids", ""))
-# Interruptor sencillo para el segundo bebé. Tiene prioridad sobre la lista avanzada
-# para que pueda activarse/desactivarse desde la configuración sin conocer su ID.
-BOLLITO2_ENABLED = bool(OPTIONS.get("bollito2_enabled", False))
-if BOLLITO2_ENABLED:
-    DISABLED_CHILD_IDS.discard(2)
-else:
-    DISABLED_CHILD_IDS.add(2)
+# Bebés visibles/activos. A partir de ES18.3 se gestionan desde la propia app y
+# se persisten en /data. Si todavía no existe ese fichero, migramos una sola vez
+# los ajustes antiguos del complemento para mantener el comportamiento previo.
+def _initial_disabled_child_ids() -> set[int]:
+    legacy = _parse_int_set(OPTIONS.get("disabled_child_ids", ""))
+    if "bollito2_enabled" in OPTIONS:
+        if bool(OPTIONS.get("bollito2_enabled", False)):
+            legacy.discard(2)
+        else:
+            legacy.add(2)
+    elif not legacy:
+        # Compatibilidad con vuestra instalación actual: el segundo perfil de
+        # pruebas permanece oculto hasta activarlo desde Ajustes.
+        legacy.add(2)
+    if APP_SETTINGS_PATH.exists():
+        try:
+            payload = json.loads(APP_SETTINGS_PATH.read_text())
+            stored = payload.get("disabled_child_ids")
+            if isinstance(stored, list):
+                return {int(value) for value in stored if int(value) > 0}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("No se pudo leer %s; se usarán los ajustes heredados", APP_SETTINGS_PATH)
+    return legacy
+
+
+def _load_known_child_ids() -> set[int] | None:
+    if not APP_SETTINGS_PATH.exists():
+        return None
+    try:
+        payload = json.loads(APP_SETTINGS_PATH.read_text())
+        stored = payload.get("known_child_ids")
+        if isinstance(stored, list):
+            return {int(value) for value in stored if int(value) > 0}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return None
+
+
+def _save_app_settings():
+    APP_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"disabled_child_ids": sorted(DISABLED_CHILD_IDS)}
+    if KNOWN_CHILD_IDS is not None:
+        payload["known_child_ids"] = sorted(KNOWN_CHILD_IDS)
+    temporary = APP_SETTINGS_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    temporary.replace(APP_SETTINGS_PATH)
+
+
+DISABLED_CHILD_IDS = _initial_disabled_child_ids()
+KNOWN_CHILD_IDS = _load_known_child_ids()
+# Guardamos inmediatamente la migración para que a partir de ahora mande la UI.
+try:
+    _save_app_settings()
+except OSError:
+    logger.warning("No se pudieron persistir inicialmente los ajustes de bebés")
 try:
     SHARED_ROOM_CHILD_ID = int(OPTIONS.get("shared_room_child_id", 0) or 0)
 except (TypeError, ValueError):
@@ -982,6 +1030,28 @@ def _child_enabled(child_id: int) -> bool:
     return int(child_id or 0) not in DISABLED_CHILD_IDS
 
 
+def _reconcile_child_visibility(children: list[dict]):
+    global KNOWN_CHILD_IDS, DISABLED_CHILD_IDS
+    current_ids = {_coerce_child_id(item) for item in children if _coerce_child_id(item) > 0}
+    changed = False
+    if KNOWN_CHILD_IDS is None:
+        KNOWN_CHILD_IDS = set(current_ids)
+        changed = True
+    else:
+        new_ids = current_ids - KNOWN_CHILD_IDS
+        if new_ids:
+            # Perfiles creados más adelante aparecen en Ajustes pero comienzan
+            # ocultos para evitar alarmas inesperadas hasta activarlos.
+            DISABLED_CHILD_IDS.update(new_ids)
+            KNOWN_CHILD_IDS.update(new_ids)
+            changed = True
+    if changed:
+        try:
+            _save_app_settings()
+        except OSError:
+            logger.warning("No se pudieron persistir los bebés detectados")
+
+
 def _room_config_for_child(child_id: int) -> dict[str, str]:
     config = ROOM_ENTITIES.get(child_id)
     if config:
@@ -993,13 +1063,29 @@ def _room_config_for_child(child_id: int) -> dict[str, str]:
 
 async def _child_name(child_id: int) -> str:
     if child_id <= 0:
-        return CHILD_NAMES.get(DEFAULT_CHILD_ID, "Bollito")
+        child_id = DEFAULT_CHILD_ID
+    if child_id in child_name_cache:
+        return child_name_cache[child_id]
+    try:
+        # El nombre real de Baby Buddy tiene prioridad sobre los alias heredados
+        # de config.yaml, de modo que renombrar el perfil desde Ajustes se refleja
+        # también en alertas y Telegram sin tocar YAML.
+        children = await _all_children_raw()
+        child = next((item for item in children if _coerce_child_id(item) == child_id), None)
+        if child:
+            name = " ".join(
+                part.strip() for part in (str(child.get("first_name") or ""), str(child.get("last_name") or ""))
+                if part.strip()
+            )
+            if name:
+                child_name_cache[child_id] = name
+                return name
+    except Exception:
+        pass
     configured_name = CHILD_NAMES.get(child_id)
     if configured_name:
         child_name_cache[child_id] = configured_name
         return configured_name
-    if child_id in child_name_cache:
-        return child_name_cache[child_id]
     try:
         response = await http_client.get(f"/api/children/{child_id}/")
         if response.status_code < 400:
@@ -1338,6 +1424,7 @@ async def _dismiss_alert(key: str):
 async def _collect_alerts() -> list[dict]:
     now = datetime.now(timezone.utc)
     children = await _baby_buddy_results("children", {"limit": 100})
+    _reconcile_child_visibility(children)
     timers = await _baby_buddy_results("timers", {"limit": 100})
     alerts: list[dict] = []
 
@@ -1516,7 +1603,6 @@ async def get_config():
         "demo_mode": DEMO_MODE,
         "unit_system": UNIT_SYSTEM,
         "default_child_id": DEFAULT_CHILD_ID,
-        "bollito2_enabled": BOLLITO2_ENABLED,
         "disabled_child_ids": sorted(DISABLED_CHILD_IDS),
         "alerts": ALERTS_CONFIG,
         "night_mode": NIGHT_MODE_CONFIG,
@@ -1535,6 +1621,214 @@ async def get_config():
             "telegram_chat_id": TELEGRAM_CHAT_ID_RAW,
             "telegram_activity_types": sorted(TELEGRAM_ACTIVITY_TYPES),
         },
+    }
+
+
+# Recursos que forman el historial de un bebé. Algunos existen solo en versiones
+# recientes de Baby Buddy; si un endpoint no existe se marca como omitido.
+CHILD_HISTORY_RESOURCES = (
+    "changes",
+    "feedings",
+    "sleep",
+    "tummy-times",
+    "temperature",
+    "weight",
+    "height",
+    "head-circumference",
+    "bmi",
+    "notes",
+    "pumping",
+    "medication",
+    "timers",
+)
+
+
+async def _all_children_raw() -> list[dict]:
+    response = await http_client.get("/api/children/", params={"limit": 200})
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    payload = response.json()
+    children = [item for item in payload.get("results", []) if isinstance(item, dict)] if isinstance(payload, dict) else []
+    _reconcile_child_visibility(children)
+    return children
+
+
+async def _child_raw(child_id: int) -> dict:
+    children = await _all_children_raw()
+    child = next((item for item in children if _coerce_child_id(item) == child_id), None)
+    if not child:
+        raise HTTPException(404, "No se encontró ese bebé en Baby Buddy")
+    return child
+
+
+@app.get("/api/dashboard-settings")
+async def get_dashboard_settings():
+    children = await _all_children_raw()
+    return {
+        "children": [
+            {**child, "enabled": _child_enabled(_coerce_child_id(child))}
+            for child in children
+        ],
+        "disabled_child_ids": sorted(DISABLED_CHILD_IDS),
+    }
+
+
+@app.put("/api/dashboard-settings/children/{child_id}/enabled")
+async def set_dashboard_child_enabled(child_id: int, request: Request):
+    global DISABLED_CHILD_IDS
+    await _child_raw(child_id)
+    payload = await request.json()
+    enabled = bool(payload.get("enabled", True))
+
+    if not enabled:
+        children = await _all_children_raw()
+        enabled_ids = [
+            _coerce_child_id(child)
+            for child in children
+            if _child_enabled(_coerce_child_id(child)) and _coerce_child_id(child) != child_id
+        ]
+        if not enabled_ids:
+            raise HTTPException(409, "Debe quedar al menos un bebé activo en la aplicación")
+        DISABLED_CHILD_IDS.add(child_id)
+    else:
+        DISABLED_CHILD_IDS.discard(child_id)
+
+    try:
+        _save_app_settings()
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudo guardar el ajuste: {exc}")
+
+    # Si se oculta un bebé, retiramos inmediatamente sus avisos ya presentes.
+    if not enabled:
+        for key in list(active_alerts):
+            if f":{child_id}:" in key or key.endswith(f":{child_id}"):
+                await _dismiss_alert(key)
+                active_alerts.pop(key, None)
+
+    _record_audit(
+        request,
+        "settings",
+        "child_visibility",
+        child_id,
+        before={"enabled": not enabled},
+        after={"enabled": enabled},
+        child_id=child_id,
+    )
+    return {"child_id": child_id, "enabled": enabled, "disabled_child_ids": sorted(DISABLED_CHILD_IDS)}
+
+
+@app.patch("/api/dashboard-settings/children/{child_id}")
+async def update_dashboard_child(child_id: int, request: Request):
+    child = await _child_raw(child_id)
+    payload = await request.json()
+    allowed = {}
+    for field in ("first_name", "last_name", "birth_date", "birth_time"):
+        if field in payload:
+            value = payload.get(field)
+            if isinstance(value, str):
+                value = value.strip()
+            if field == "birth_date" and value == "":
+                value = None
+            allowed[field] = value
+    if not allowed:
+        raise HTTPException(400, "No hay datos del bebé para modificar")
+    if "first_name" in allowed and not allowed["first_name"]:
+        raise HTTPException(400, "El nombre no puede quedar vacío")
+    if "birth_date" in allowed and not allowed["birth_date"]:
+        raise HTTPException(400, "La fecha de nacimiento no puede quedar vacía")
+
+    lookup = str(child.get("slug") or child_id)
+    response = await http_client.patch(f"/api/children/{lookup}/", json=allowed)
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    updated = response.json()
+    child_name_cache.pop(child_id, None)
+    _record_audit(request, "update", "children", child_id, before=child, after=updated, child_id=child_id)
+    return updated
+
+
+async def _delete_child_resource_entries(resource: str, child_id: int) -> tuple[int, str | None]:
+    deleted = 0
+    # Repetimos siempre la primera página. Al borrar los resultados, la siguiente
+    # tanda pasa a ocupar esa primera página, evitando problemas de offset.
+    for _ in range(10000):
+        response = await http_client.get(
+            f"/api/{resource}/",
+            params={"child": child_id, "limit": 100},
+        )
+        if response.status_code in (404, 405):
+            return deleted, "endpoint no disponible"
+        if response.status_code >= 400:
+            return deleted, f"HTTP {response.status_code}: {response.text[:180]}"
+        payload = response.json()
+        entries = payload.get("results", []) if isinstance(payload, dict) else []
+        entries = [entry for entry in entries if isinstance(entry, dict) and entry.get("id") not in (None, "")]
+        if not entries:
+            return deleted, None
+        wrong_child = [entry for entry in entries if _coerce_child_id(entry.get("child")) != child_id]
+        if wrong_child:
+            # Protección crítica: nunca continuar si Baby Buddy ignorase el filtro
+            # child=..., porque podríamos borrar datos de otro bebé.
+            return deleted, "Baby Buddy no respetó el filtro por bebé; borrado detenido por seguridad"
+        for entry in entries:
+            entry_id = entry.get("id")
+            delete_response = await http_client.delete(f"/api/{resource}/{entry_id}/")
+            if delete_response.status_code not in (200, 202, 204, 404):
+                return deleted, f"No se pudo borrar ID {entry_id}: HTTP {delete_response.status_code}"
+            if delete_response.status_code != 404:
+                deleted += 1
+    return deleted, "límite de seguridad alcanzado"
+
+
+@app.post("/api/dashboard-settings/children/{child_id}/clear-history")
+async def clear_dashboard_child_history(child_id: int, request: Request):
+    child = await _child_raw(child_id)
+    payload = await request.json()
+    first_name = str(child.get("first_name") or "Bebé").strip() or "Bebé"
+    expected = f"BORRAR {first_name}"
+    if str(payload.get("confirmation") or "").strip() != expected:
+        raise HTTPException(400, f"Escribe exactamente: {expected}")
+
+    include_audit = bool(payload.get("include_audit", True))
+    result: dict[str, dict] = {}
+    total = 0
+    errors = []
+    for resource in CHILD_HISTORY_RESOURCES:
+        count, error = await _delete_child_resource_entries(resource, child_id)
+        result[resource] = {"deleted": count, "error": error}
+        total += count
+        if error and error != "endpoint no disponible":
+            errors.append(f"{resource}: {error}")
+
+    audit_deleted = 0
+    if include_audit:
+        with sqlite3.connect(AUDIT_DB_PATH) as connection:
+            cursor = connection.execute("DELETE FROM audit_log WHERE child_id = ?", (child_id,))
+            audit_deleted = max(0, cursor.rowcount or 0)
+            connection.commit()
+
+    # Retiramos avisos activos del bebé. No modificamos existencias de Grocy: este
+    # proceso limpia el historial de Baby Buddy, no el inventario físico.
+    for key in list(active_alerts):
+        if f":{child_id}:" in key or key.endswith(f":{child_id}"):
+            await _dismiss_alert(key)
+            active_alerts.pop(key, None)
+
+    if not include_audit:
+        _record_audit(
+            request, "clear_history", "children", child_id,
+            before={"child": child, "deleted": result}, after=None, child_id=child_id
+        )
+
+    return {
+        "ok": not errors,
+        "child_id": child_id,
+        "child_name": first_name,
+        "total_deleted": total,
+        "audit_deleted": audit_deleted,
+        "resources": result,
+        "errors": errors,
+        "grocy_stock_changed": False,
     }
 
 
@@ -2176,8 +2470,8 @@ async def proxy_baby_buddy(path: str, request: Request):
         and not entry_id
         and isinstance(response_payload, dict)
         and isinstance(response_payload.get("results"), list)
-        and DISABLED_CHILD_IDS
     ):
+        _reconcile_child_visibility(response_payload["results"])
         response_payload["results"] = [
             child for child in response_payload["results"]
             if _child_enabled(_coerce_child_id(child))
