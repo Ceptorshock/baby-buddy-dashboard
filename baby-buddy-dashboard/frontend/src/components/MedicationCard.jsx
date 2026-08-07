@@ -1,6 +1,8 @@
+import { useMemo, useState } from "react";
 import SectionCard from "./SectionCard";
 import TimelineItem from "./TimelineItem";
 import { Icons } from "./Icons";
+import { api } from "../api";
 import { colors } from "../utils/colors";
 import { formatTime, timeAgo } from "../utils/formatters";
 
@@ -10,37 +12,135 @@ function intervalMilliseconds(value) {
   return ((parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0)) * 1000;
 }
 
+function localTimestamp(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+}
+
 function doseText(entry) {
   if (entry.dosage === null || entry.dosage === undefined || entry.dosage === "") return "";
   return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
 }
 
-export default function MedicationCard({ medications = [], onEditEntry, onAdd }) {
+function activeRegimens(medications) {
+  const latestByName = new Map();
+  for (const entry of medications || []) {
+    const key = String(entry?.name || "").trim().toLocaleLowerCase("es-ES");
+    if (!key || latestByName.has(key)) continue;
+    latestByName.set(key, entry);
+  }
+  return [...latestByName.values()]
+    .map((entry) => {
+      const intervalMs = intervalMilliseconds(entry.next_dose_interval);
+      const administeredAt = new Date(entry.time);
+      const nextAt = intervalMs > 0 && !Number.isNaN(administeredAt.getTime())
+        ? new Date(administeredAt.getTime() + intervalMs)
+        : null;
+      return { entry, intervalMs, nextAt };
+    })
+    .filter((item) => item.nextAt)
+    .sort((a, b) => a.nextAt - b.nextAt);
+}
+
+export default function MedicationCard({ medications = [], childId, onEditEntry, onAdd, onCreateScheduled, onChanged }) {
   const recent = medications.slice(0, 5);
-  const latest = recent[0];
-  const nextAt = latest?.next_dose_interval
-    ? new Date(new Date(latest.time).getTime() + intervalMilliseconds(latest.next_dose_interval))
-    : null;
+  const regimens = useMemo(() => activeRegimens(medications), [medications]);
+  const [busyId, setBusyId] = useState(null);
+  const [message, setMessage] = useState("");
+
+  const registerScheduledDose = async ({ entry, nextAt }) => {
+    if (!childId || !entry || !nextAt) return;
+    setBusyId(`dose:${entry.id}`);
+    setMessage("");
+    try {
+      const data = {
+        child: childId,
+        name: entry.name,
+        time: localTimestamp(nextAt),
+        next_dose_interval: entry.next_dose_interval,
+      };
+      if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") data.dosage = entry.dosage;
+      if (entry.dosage_unit) data.dosage_unit = entry.dosage_unit;
+      if (entry.notes) data.notes = entry.notes;
+      const created = await api.createMedication(data);
+      setMessage(`${entry.name} registrado a las ${formatTime(nextAt)}. Próxima dosis recalculada según la pauta.`);
+      onCreateScheduled?.({ type: "medication", id: created.id, label: entry.name, childId });
+      await onChanged?.();
+    } catch (error) {
+      setMessage(`No se pudo registrar la dosis: ${error.message}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const endRegimen = async (entry) => {
+    if (!entry?.id) return;
+    const confirmed = window.confirm(`¿Finalizar la pauta de ${entry.name}?\n\nNo se borrará ninguna dosis ya registrada y dejarán de generarse próximas dosis y avisos.`);
+    if (!confirmed) return;
+    setBusyId(`end:${entry.id}`);
+    setMessage("");
+    try {
+      await api.updateMedication(entry.id, { next_dose_interval: null });
+      setMessage(`Pauta de ${entry.name} finalizada.`);
+      await onChanged?.();
+    } catch (error) {
+      setMessage(`No se pudo finalizar la pauta: ${error.message}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="fade-in fade-in-2">
       <SectionCard title="Medicamentos" icon={<Icons.Pill />} color={colors.medication}>
-        {latest && (
-          <div className="medication-next-dose">
-            <div>
-              <span className="medication-next-label">Última administración</span>
-              <strong>{latest.name}{doseText(latest) ? ` · ${doseText(latest)}` : ""}</strong>
-            </div>
-            <div className="medication-next-time">
-              {nextAt ? (
-                <>
-                  <span>Próxima según pauta</span>
-                  <strong className={nextAt <= new Date() ? "dose-due" : ""}>{formatTime(nextAt)}</strong>
-                </>
-              ) : <span>Sin próxima dosis configurada</span>}
-            </div>
+        {regimens.length > 0 && (
+          <div className="medication-regimens">
+            <div className="medication-regimens-title">Pautas activas</div>
+            {regimens.map(({ entry, nextAt }) => {
+              const due = nextAt <= new Date();
+              return (
+                <div key={`regimen-${entry.id}`} className={`medication-regimen-row${due ? " is-due" : ""}`}>
+                  <div className="medication-regimen-info">
+                    <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
+                    <span>{due ? "Dosis pendiente" : "Próxima dosis"} · {formatTime(nextAt)}</span>
+                  </div>
+                  <div className="medication-regimen-actions">
+                    <button
+                      type="button"
+                      className="medication-quick-dose"
+                      disabled={!due || busyId === `dose:${entry.id}`}
+                      title={due ? `Registrar la dosis programada de las ${formatTime(nextAt)}` : `Disponible a las ${formatTime(nextAt)}`}
+                      onClick={() => registerScheduledDose({ entry, nextAt })}
+                    >
+                      <Icons.Pill />
+                      {busyId === `dose:${entry.id}` ? "Guardando…" : `Registrar ${formatTime(nextAt)}`}
+                    </button>
+                    <button
+                      type="button"
+                      className="medication-icon-btn"
+                      title="Modificar esta dosis antes de registrarla"
+                      onClick={() => onEditEntry?.("medication", null, { ...entry, time: nextAt.toISOString() })}
+                    >
+                      <Icons.Pencil />
+                    </button>
+                    <button
+                      type="button"
+                      className="medication-icon-btn medication-end-btn"
+                      disabled={busyId === `end:${entry.id}`}
+                      title="Finalizar pauta"
+                      onClick={() => endRegimen(entry)}
+                    >
+                      <Icons.X />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
+
+        {message && <div className="medication-message">{message}</div>}
+
         {recent.length ? (
           <div className="medication-list">
             {recent.map((entry, index) => (
@@ -57,7 +157,7 @@ export default function MedicationCard({ medications = [], onEditEntry, onAdd })
             ))}
           </div>
         ) : <div className="empty-state-small">Todavía no hay medicamentos registrados</div>}
-        <button className="section-action-btn" onClick={onAdd}><Icons.Plus /> Registrar medicamento</button>
+        <button className="section-action-btn" onClick={onAdd}><Icons.Plus /> Registrar medicamento / iniciar pauta</button>
       </SectionCard>
     </div>
   );

@@ -1511,7 +1511,7 @@ async def _collect_alerts() -> list[dict]:
                     "key": f"medication_due:{child_id}:{medication.get('id', med_name.casefold())}",
                     "type": "medication",
                     "title": f"Medicamento pendiente · {child_name}",
-                    "message": f"Según la pauta registrada, {med_name}{dose_text} {timing_text}.",
+                    "message": f"Según la pauta registrada, {med_name}{dose_text} {timing_text}. Abre la app para registrar la dosis programada o finalizar la pauta.",
                     "alexa_message": f"Aviso. Según la pauta registrada, toca {med_name} de {child_name}.",
                 })
 

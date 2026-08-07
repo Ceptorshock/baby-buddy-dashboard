@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Icons } from "./Icons";
 import { api } from "../api";
-import { colors } from "../utils/colors";
 import { formatElapsed } from "../utils/formatters";
 
 function timerKind(name) {
@@ -11,11 +10,47 @@ function timerKind(name) {
   return "feeding";
 }
 
+function intervalMilliseconds(value) {
+  const parts = String(value || "").split(":").map(Number);
+  return ((parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0)) * 1000;
+}
+
+function localTimestamp(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+}
+
+function clock(date) {
+  return new Date(date).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
+function doseText(entry) {
+  if (entry?.dosage === null || entry?.dosage === undefined || entry?.dosage === "") return "";
+  return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
+}
+
+function getActiveRegimens(medications) {
+  const latest = new Map();
+  for (const entry of medications || []) {
+    const key = String(entry?.name || "").trim().toLocaleLowerCase("es-ES");
+    if (!key || latest.has(key)) continue;
+    latest.set(key, entry);
+  }
+  return [...latest.values()].map((entry) => {
+    const ms = intervalMilliseconds(entry.next_dose_interval);
+    const previous = new Date(entry.time);
+    const nextAt = ms > 0 && !Number.isNaN(previous.getTime()) ? new Date(previous.getTime() + ms) : null;
+    return { entry, nextAt };
+  }).filter((item) => item.nextAt).sort((a, b) => a.nextAt - b.nextAt);
+}
+
 export default function NightModePanel({ data, timer, onOpenForm, onCreated, onDisable }) {
   const [showDiaper, setShowDiaper] = useState(false);
   const [savingDiaper, setSavingDiaper] = useState(false);
+  const [savingMedication, setSavingMedication] = useState(null);
   const [message, setMessage] = useState("");
 
+  const regimens = useMemo(() => getActiveRegimens(data.medications), [data.medications]);
   const vibrate = () => { try { navigator.vibrate?.(35); } catch {} };
   const activeByType = (type) => timer.activeTimers.find((item) => timerKind(item.name) === type);
 
@@ -60,9 +95,47 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     }
   };
 
+  const quickMedication = async ({ entry, nextAt }) => {
+    if (!entry || !nextAt || !data.child?.id) return;
+    setSavingMedication(entry.id);
+    vibrate();
+    try {
+      const payload = {
+        child: data.child.id,
+        name: entry.name,
+        time: localTimestamp(nextAt),
+        next_dose_interval: entry.next_dose_interval,
+      };
+      if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") payload.dosage = entry.dosage;
+      if (entry.dosage_unit) payload.dosage_unit = entry.dosage_unit;
+      if (entry.notes) payload.notes = entry.notes;
+      const created = await api.createMedication(payload);
+      onCreated({ type: "medication", id: created.id, label: entry.name, childId: data.child.id });
+      setMessage(`${entry.name} registrado a las ${clock(nextAt)}`);
+      await data.refetch();
+    } catch (error) {
+      setMessage(`Error: ${error.message}`);
+    } finally {
+      setSavingMedication(null);
+    }
+  };
+
+  const endRegimen = async (entry) => {
+    if (!window.confirm(`¿Finalizar la pauta de ${entry.name}?`)) return;
+    setSavingMedication(entry.id);
+    try {
+      await api.updateMedication(entry.id, { next_dose_interval: null });
+      setMessage(`Pauta de ${entry.name} finalizada`);
+      await data.refetch();
+    } catch (error) {
+      setMessage(`Error: ${error.message}`);
+    } finally {
+      setSavingMedication(null);
+    }
+  };
+
   const feeding = activeByType("feeding");
   const sleep = activeByType("sleep");
-  const latestMedication = data.medications?.[0];
 
   return (
     <div className="night-mode-screen">
@@ -93,7 +166,7 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
           <Icons.Droplet /><span>Pañal</span>
         </button>
         <button className="night-action medication" onClick={() => onOpenForm({ type: "medication" })}>
-          <Icons.Pill /><span>Medicamento</span>
+          <Icons.Pill /><span>Nuevo medicamento</span>
         </button>
       </div>
 
@@ -105,13 +178,30 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
         </div>
       )}
 
-      {latestMedication && (
-        <div className="night-last-medication">
-          <span>Último medicamento</span>
-          <strong>{latestMedication.name}{latestMedication.dosage ? ` · ${latestMedication.dosage} ${latestMedication.dosage_unit || ""}` : ""}</strong>
-          <span>{new Date(latestMedication.time).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
+      {regimens.length > 0 && (
+        <div className="night-medication-regimens">
+          <div className="night-medication-title">Pautas activas</div>
+          {regimens.map(({ entry, nextAt }) => {
+            const due = nextAt <= new Date();
+            return (
+              <div className={`night-medication-row${due ? " is-due" : ""}`} key={`night-med-${entry.id}`}>
+                <div className="night-medication-info">
+                  <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
+                  <span>{due ? "Pendiente" : "Próxima"} · {clock(nextAt)}</span>
+                </div>
+                <div className="night-medication-actions">
+                  <button disabled={!due || savingMedication === entry.id} onClick={() => quickMedication({ entry, nextAt })}>
+                    {savingMedication === entry.id ? "…" : `Registrar ${clock(nextAt)}`}
+                  </button>
+                  <button title="Modificar antes de registrar" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, time: nextAt.toISOString() } })}><Icons.Pencil /></button>
+                  <button title="Finalizar pauta" onClick={() => endRegimen(entry)}><Icons.X /></button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
+
       {message && <div className="night-message">{message}</div>}
     </div>
   );

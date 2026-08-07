@@ -731,3 +731,38 @@ body {
 @media(max-width:620px){
   .settings-child-head{align-items:flex-start}.settings-switch{flex-direction:column;gap:3px}.settings-switch em{min-width:0}.settings-child-actions{flex-direction:column}.settings-child-actions .settings-danger-link{margin-left:0}.settings-fields-grid{grid-template-columns:1fr}.settings-header-btn{margin-left:-8px}
 }
+
+/* ES18.4: pautas activas de medicación con dosis rápida */
+.medication-regimens { margin-bottom: 14px; display:flex; flex-direction:column; gap:8px; }
+.medication-regimens-title { color:var(--text-dim); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+.medication-regimen-row { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid #f9731628; background:#f9731609; border-radius:12px; }
+.medication-regimen-row.is-due { border-color:#f9731666; background:#f9731613; }
+.medication-regimen-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.medication-regimen-info strong { color:var(--text); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.medication-regimen-info span { color:var(--text-dim); font-size:10px; }
+.medication-regimen-row.is-due .medication-regimen-info span { color:#fb923c; font-weight:800; }
+.medication-regimen-actions { display:flex; align-items:center; gap:6px; }
+.medication-regimen-actions button { border:1px solid var(--border); border-radius:9px; font:700 10px var(--font); cursor:pointer; }
+.medication-quick-dose { min-height:34px; display:flex; align-items:center; gap:6px; padding:7px 10px; background:#f97316; border-color:#f97316!important; color:#15100d; }
+.medication-quick-dose svg { width:15px; height:15px; }
+.medication-quick-dose:disabled { opacity:.38; cursor:not-allowed; background:var(--bg); border-color:var(--border)!important; color:var(--text-dim); }
+.medication-icon-btn { width:34px; height:34px; display:flex; align-items:center; justify-content:center; padding:0; background:var(--bg); color:var(--text-muted); }
+.medication-icon-btn:hover:not(:disabled) { color:var(--text); border-color:#64748b70; }
+.medication-end-btn { color:#f87171; border-color:#ef444435!important; }
+.medication-message { margin:0 0 12px; padding:9px 11px; border-radius:9px; border:1px solid #f9731628; background:#f9731608; color:var(--text-muted); font-size:10px; line-height:1.45; }
+.night-medication-regimens { max-width:760px; margin:18px auto 0; display:flex; flex-direction:column; gap:9px; }
+.night-medication-title { color:#8a3f2b; font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.night-medication-row { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid #3c2118; background:#0b0705; border-radius:13px; }
+.night-medication-row.is-due { border-color:#8b3f27; background:#170b07; }
+.night-medication-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.night-medication-info strong { color:#b96f53; font-size:13px; }
+.night-medication-info span { color:#785044; font-size:10px; }
+.night-medication-row.is-due .night-medication-info span { color:#d99172; font-weight:800; }
+.night-medication-actions { display:flex; gap:6px; align-items:center; }
+.night-medication-actions button { min-height:34px; border:1px solid #452219; background:#0a0605; color:#9f6b57; border-radius:9px; padding:7px 9px; font:700 10px var(--font); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.night-medication-actions button:disabled { opacity:.32; cursor:not-allowed; }
+.night-medication-actions button svg { width:15px; height:15px; }
+@media(max-width:620px){
+  .medication-regimen-row{align-items:flex-start;flex-direction:column}.medication-regimen-actions{width:100%}.medication-quick-dose{flex:1;justify-content:center}
+  .night-medication-row{align-items:flex-start;flex-direction:column}.night-medication-actions{width:100%}.night-medication-actions button:first-child{flex:1}
+}

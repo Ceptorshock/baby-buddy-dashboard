@@ -377,8 +377,11 @@ export default function App() {
             </div>
           <MedicationCard
             medications={data.medications}
-            onEditEntry={(type, entry) => setModal({ type, entry })}
+            childId={data.child?.id}
+            onEditEntry={(type, entry, prefill) => setModal({ type, entry, prefill })}
             onAdd={() => setModal({ type: "medication" })}
+            onCreateScheduled={handleFormDone}
+            onChanged={data.refetch}
           />
           <OverviewTab
             feedings={data.feedings}
@@ -578,6 +581,7 @@ export default function App() {
         <MedicationForm
           childId={data.child?.id}
           entry={modal.entry}
+          prefill={modal.prefill}
           onDone={handleFormDone}
           onClose={closeModal}
         />

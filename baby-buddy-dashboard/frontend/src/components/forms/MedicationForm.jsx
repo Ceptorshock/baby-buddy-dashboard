@@ -20,16 +20,17 @@ const UNITS = [
   { value: "tablets", label: "comprimidos" },
 ];
 
-export default function MedicationForm({ childId, entry, onDone, onClose }) {
+export default function MedicationForm({ childId, entry, prefill, onDone, onClose }) {
   const isEdit = !!entry;
-  const initialInterval = parseInterval(entry?.next_dose_interval);
-  const [name, setName] = useState(entry?.name || "");
-  const [dosage, setDosage] = useState(entry?.dosage ?? "");
-  const [dosageUnit, setDosageUnit] = useState(entry?.dosage_unit || "ml");
-  const [time, setTime] = useState(entry?.time ? toLocalDatetime(new Date(entry.time)) : toLocalDatetime(new Date()));
+  const source = entry || prefill || {};
+  const initialInterval = parseInterval(source?.next_dose_interval);
+  const [name, setName] = useState(source?.name || "");
+  const [dosage, setDosage] = useState(source?.dosage ?? "");
+  const [dosageUnit, setDosageUnit] = useState(source?.dosage_unit || "ml");
+  const [time, setTime] = useState(source?.time ? toLocalDatetime(new Date(source.time)) : toLocalDatetime(new Date()));
   const [intervalHours, setIntervalHours] = useState(initialInterval.hours || "");
   const [intervalMinutes, setIntervalMinutes] = useState(initialInterval.minutes || "");
-  const [notes, setNotes] = useState(entry?.notes || "");
+  const [notes, setNotes] = useState(source?.notes || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,7 +72,7 @@ export default function MedicationForm({ childId, entry, onDone, onClose }) {
   };
 
   return (
-    <Modal title={isEdit ? "Editar medicamento" : "Registrar medicamento"} onClose={onClose}>
+    <Modal title={isEdit ? "Editar medicamento" : prefill ? "Registrar dosis programada" : "Registrar medicamento"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         <FormField label="Medicamento">
           <FormInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Paracetamol" autoFocus required />
@@ -99,7 +100,7 @@ export default function MedicationForm({ childId, entry, onDone, onClose }) {
         </FormField>
         {error && <div className="form-error">{error}</div>}
         <FormButton color={colors.medication} disabled={saving || !name.trim()}>
-          {saving ? "Guardando..." : isEdit ? "Actualizar medicamento" : "Guardar medicamento"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar medicamento" : prefill ? "Registrar esta dosis" : "Guardar medicamento"}
         </FormButton>
       </form>
     </Modal>
