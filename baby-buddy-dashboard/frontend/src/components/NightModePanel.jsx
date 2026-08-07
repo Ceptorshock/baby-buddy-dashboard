@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icons } from "./Icons";
 import { api } from "../api";
 import { formatElapsed } from "../utils/formatters";
@@ -29,18 +29,29 @@ function doseText(entry) {
   return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
 }
 
-function getActiveRegimens(medications) {
+function regimenKey(name) {
+  return String(name || "").trim().toLocaleLowerCase("es-ES");
+}
+
+function getActiveRegimens(medications, regimenMap) {
   const latest = new Map();
   for (const entry of medications || []) {
-    const key = String(entry?.name || "").trim().toLocaleLowerCase("es-ES");
+    const key = regimenKey(entry?.name);
     if (!key || latest.has(key)) continue;
     latest.set(key, entry);
   }
-  return [...latest.values()].map((entry) => {
+  return [...latest.values()].map((rawEntry) => {
+    const template = regimenMap.get(regimenKey(rawEntry.name));
+    const entry = template ? {
+      ...rawEntry,
+      dosage: template.dosage !== null && template.dosage !== undefined && template.dosage !== "" ? template.dosage : rawEntry.dosage,
+      dosage_unit: template.dosage_unit || rawEntry.dosage_unit,
+      next_dose_interval: template.next_dose_interval || rawEntry.next_dose_interval,
+    } : rawEntry;
     const ms = intervalMilliseconds(entry.next_dose_interval);
-    const previous = new Date(entry.time);
+    const previous = new Date(rawEntry.time);
     const nextAt = ms > 0 && !Number.isNaN(previous.getTime()) ? new Date(previous.getTime() + ms) : null;
-    return { entry, nextAt };
+    return { entry, rawEntry, nextAt };
   }).filter((item) => item.nextAt).sort((a, b) => a.nextAt - b.nextAt);
 }
 
@@ -49,8 +60,33 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
   const [savingDiaper, setSavingDiaper] = useState(false);
   const [savingMedication, setSavingMedication] = useState(null);
   const [message, setMessage] = useState("");
+  const [regimenMap, setRegimenMap] = useState(() => new Map());
+  const [advanceMinutes, setAdvanceMinutes] = useState(20);
+  const [now, setNow] = useState(() => new Date());
 
-  const regimens = useMemo(() => getActiveRegimens(data.medications), [data.medications]);
+  useEffect(() => {
+    const timerId = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(timerId);
+  }, []);
+
+  useEffect(() => {
+    if (!data.child?.id) return;
+    let cancelled = false;
+    Promise.all([
+      api.getMedicationRegimens(data.child.id).catch(() => ({ regimens: [] })),
+      api.getDashboardSettings().catch(() => ({ medication_alerts: { minutes_before: 20 } })),
+    ]).then(([result, settings]) => {
+      if (cancelled) return;
+      const next = new Map();
+      for (const item of result.regimens || []) if (item?.name) next.set(regimenKey(item.name), item);
+      setRegimenMap(next);
+      const minutes = Number(settings?.medication_alerts?.minutes_before ?? 20);
+      setAdvanceMinutes(Number.isFinite(minutes) ? Math.max(0, minutes) : 20);
+    });
+    return () => { cancelled = true; };
+  }, [data.child?.id, data.medications]);
+
+  const regimens = useMemo(() => getActiveRegimens(data.medications, regimenMap), [data.medications, regimenMap]);
   const vibrate = () => { try { navigator.vibrate?.(35); } catch {} };
   const activeByType = (type) => timer.activeTimers.find((item) => timerKind(item.name) === type);
 
@@ -111,6 +147,10 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
       if (entry.dosage_unit) payload.dosage_unit = entry.dosage_unit;
       if (entry.notes) payload.notes = entry.notes;
       const created = await api.createMedication(payload);
+      await api.setMedicationRegimen(data.child.id, {
+        name: entry.name, dosage: entry.dosage ?? null, dosage_unit: entry.dosage_unit || "",
+        next_dose_interval: entry.next_dose_interval || "", active: true,
+      }).catch(() => null);
       onCreated({ type: "medication", id: created.id, label: entry.name, childId: data.child.id });
       setMessage(`${entry.name} registrado ahora · ${clock(administeredNow)}`);
       await data.refetch();
@@ -125,7 +165,10 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     if (!window.confirm(`¿Finalizar la pauta de ${entry.name}?`)) return;
     setSavingMedication(entry.id);
     try {
-      await api.updateMedication(entry.id, { next_dose_interval: null });
+      await Promise.all([
+        api.updateMedication(entry.id, { next_dose_interval: null }),
+        api.deleteMedicationRegimen(data.child.id, entry.name).catch(() => null),
+      ]);
       setMessage(`Pauta de ${entry.name} finalizada`);
       await data.refetch();
     } catch (error) {
@@ -182,21 +225,23 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
       {regimens.length > 0 && (
         <div className="night-medication-regimens">
           <div className="night-medication-title">Pautas activas</div>
-          {regimens.map(({ entry, nextAt }) => {
-            const due = nextAt <= new Date();
+          {regimens.map(({ entry, rawEntry, nextAt }) => {
+            const deltaMinutes = (nextAt.getTime() - now.getTime()) / 60000;
+            const due = deltaMinutes <= 0;
+            const soon = !due && deltaMinutes <= advanceMinutes;
             return (
-              <div className={`night-medication-row${due ? " is-due" : ""}`} key={`night-med-${entry.id}`}>
+              <div className={`night-medication-row${due ? " is-due" : soon ? " is-soon" : ""}`} key={`night-med-${rawEntry.id}`}>
                 <div className="night-medication-info">
                   <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
-                  <span>{due ? "Pendiente" : "Próxima"} · {clock(nextAt)}</span>
+                  <span>{due ? "Pendiente" : soon ? `Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` : "Próxima"} · {clock(nextAt)}</span>
                 </div>
                 <div className="night-medication-actions">
-                  <button disabled={savingMedication === entry.id} onClick={() => quickMedication({ entry, nextAt })}>
-                    {savingMedication === entry.id ? "…" : `Dar ahora · ${clock(new Date())}`}
+                  <button className={due ? "is-due" : soon ? "is-soon" : "is-early"} disabled={savingMedication === rawEntry.id} onClick={() => quickMedication({ entry: { ...entry, id: rawEntry.id }, nextAt })}>
+                    {savingMedication === rawEntry.id ? "…" : `Dar ahora · ${clock(now)}`}
                   </button>
                   <button title="Dar con cambios" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, time: new Date().toISOString() } })}><Icons.Pencil /></button>
-                  <button title="Editar pauta sin registrar dosis" onClick={() => onOpenForm({ type: "medication", entry, regimenOnly: true })}><Icons.Settings /></button>
-                  <button title="Finalizar pauta" onClick={() => endRegimen(entry)}><Icons.X /></button>
+                  <button title="Editar dosis futura e intervalo" onClick={() => onOpenForm({ type: "medication", entry: rawEntry, prefill: entry, regimenOnly: true })}><Icons.Settings /></button>
+                  <button title="Finalizar pauta" onClick={() => endRegimen(rawEntry)}><Icons.X /></button>
                 </div>
               </div>
             );

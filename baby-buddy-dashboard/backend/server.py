@@ -544,10 +544,75 @@ def _initial_medication_alert_settings() -> dict:
 
 
 MEDICATION_ALERT_SETTINGS = _initial_medication_alert_settings()
+
+
+def _medication_regimen_key(child_id: int, name: str) -> str:
+    return f"{int(child_id)}::{str(name or '').strip().casefold()}"
+
+
+def _initial_medication_regimens() -> dict[str, dict]:
+    if not APP_SETTINGS_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(APP_SETTINGS_PATH.read_text())
+        stored = payload.get("medication_regimens") if isinstance(payload, dict) else None
+        if not isinstance(stored, dict):
+            return {}
+        result: dict[str, dict] = {}
+        for key, value in stored.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                child_id = int(value.get("child_id") or str(key).split("::", 1)[0])
+            except (TypeError, ValueError):
+                continue
+            name = str(value.get("name") or "").strip()
+            if child_id <= 0 or not name:
+                continue
+            normalized = _medication_regimen_key(child_id, name)
+            result[normalized] = {
+                "child_id": child_id,
+                "name": name,
+                "dosage": value.get("dosage"),
+                "dosage_unit": str(value.get("dosage_unit") or "").strip(),
+                "next_dose_interval": str(value.get("next_dose_interval") or "").strip(),
+                "active": bool(value.get("active", True)),
+                "updated_at": value.get("updated_at"),
+            }
+        return result
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        logger.warning("No se pudieron leer las plantillas de pautas de medicación")
+        return {}
+
+
+MEDICATION_REGIMENS = _initial_medication_regimens()
 try:
-    _save_app_settings({"medication_alerts": MEDICATION_ALERT_SETTINGS})
+    _save_app_settings({
+        "medication_alerts": MEDICATION_ALERT_SETTINGS,
+        "medication_regimens": MEDICATION_REGIMENS,
+    })
 except OSError:
-    logger.warning("No se pudieron persistir los ajustes de avisos de medicación")
+    logger.warning("No se pudieron persistir los ajustes de medicación")
+
+
+def _medication_regimen_for(child_id: int, name: str) -> dict | None:
+    regimen = MEDICATION_REGIMENS.get(_medication_regimen_key(child_id, name))
+    if not isinstance(regimen, dict) or not regimen.get("active", True):
+        return None
+    return regimen
+
+
+def _effective_medication(child_id: int, medication: dict) -> dict:
+    effective = dict(medication or {})
+    regimen = _medication_regimen_for(child_id, effective.get("name", ""))
+    if regimen:
+        if regimen.get("dosage") not in (None, ""):
+            effective["dosage"] = regimen.get("dosage")
+        if regimen.get("dosage_unit"):
+            effective["dosage_unit"] = regimen.get("dosage_unit")
+        if regimen.get("next_dose_interval"):
+            effective["next_dose_interval"] = regimen.get("next_dose_interval")
+    return effective
 
 NIGHT_MODE_CONFIG = {
     "enabled": bool(OPTIONS.get("night_mode_enabled", True)),
@@ -1531,6 +1596,7 @@ async def _collect_alerts() -> list[dict]:
                     continue
                 latest_by_name[name_key] = medication
             for medication in latest_by_name.values():
+                medication = _effective_medication(child_id, medication)
                 interval_seconds = _interval_seconds(medication.get("next_dose_interval"))
                 administered = _parse_datetime(medication.get("time"))
                 if interval_seconds <= 0 or not administered:
@@ -1744,6 +1810,81 @@ async def set_medication_alert_settings(request: Request):
     return MEDICATION_ALERT_SETTINGS
 
 
+@app.get("/api/medication-regimens/{child_id}")
+async def get_medication_regimens(child_id: int):
+    await _child_raw(child_id)
+    items = [
+        dict(value)
+        for value in MEDICATION_REGIMENS.values()
+        if isinstance(value, dict) and int(value.get("child_id") or 0) == child_id and value.get("active", True)
+    ]
+    return {"regimens": items}
+
+
+@app.put("/api/medication-regimens/{child_id}")
+async def set_medication_regimen(child_id: int, request: Request):
+    await _child_raw(child_id)
+    if not _child_enabled(child_id):
+        raise HTTPException(409, "Este bebé está deshabilitado en Baby Buddy Dashboard")
+    payload = await request.json()
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Falta el nombre del medicamento")
+    dosage = payload.get("dosage")
+    if dosage not in (None, ""):
+        try:
+            dosage = float(dosage)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "La dosis debe ser un número")
+    else:
+        dosage = None
+    unit = str(payload.get("dosage_unit") or "").strip()
+    interval = str(payload.get("next_dose_interval") or "").strip()
+    if interval and _interval_seconds(interval) <= 0:
+        raise HTTPException(400, "El intervalo de la pauta no es válido")
+    key = _medication_regimen_key(child_id, name)
+    before = MEDICATION_REGIMENS.get(key)
+    regimen = {
+        "child_id": child_id,
+        "name": name,
+        "dosage": dosage,
+        "dosage_unit": unit,
+        "next_dose_interval": interval,
+        "active": bool(payload.get("active", True)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    MEDICATION_REGIMENS[key] = regimen
+    try:
+        _save_app_settings({
+            "medication_alerts": MEDICATION_ALERT_SETTINGS,
+            "medication_regimens": MEDICATION_REGIMENS,
+        })
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudo guardar la pauta: {exc}")
+    _record_audit(request, "update", "medication_regimen", key, before=before, after=regimen, child_id=child_id)
+    return regimen
+
+
+@app.delete("/api/medication-regimens/{child_id}")
+async def delete_medication_regimen(child_id: int, request: Request):
+    await _child_raw(child_id)
+    payload = await request.json()
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Falta el nombre del medicamento")
+    key = _medication_regimen_key(child_id, name)
+    before = MEDICATION_REGIMENS.pop(key, None)
+    try:
+        _save_app_settings({
+            "medication_alerts": MEDICATION_ALERT_SETTINGS,
+            "medication_regimens": MEDICATION_REGIMENS,
+        })
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudo finalizar la pauta: {exc}")
+    _record_audit(request, "delete", "medication_regimen", key, before=before, after=None, child_id=child_id)
+    return {"deleted": True, "name": name}
+
+
 @app.put("/api/dashboard-settings/children/{child_id}/enabled")
 async def set_dashboard_child_enabled(child_id: int, request: Request):
     global DISABLED_CHILD_IDS
@@ -1877,6 +2018,23 @@ async def clear_dashboard_child_history(child_id: int, request: Request):
             cursor = connection.execute("DELETE FROM audit_log WHERE child_id = ?", (child_id,))
             audit_deleted = max(0, cursor.rowcount or 0)
             connection.commit()
+
+    # Las pautas futuras pertenecen también al historial de pruebas de este bebé.
+    # Las eliminamos para que un reinicio de pruebas no deje recordatorios activos.
+    regimen_keys = [
+        key for key, value in MEDICATION_REGIMENS.items()
+        if isinstance(value, dict) and int(value.get("child_id") or 0) == child_id
+    ]
+    for key in regimen_keys:
+        MEDICATION_REGIMENS.pop(key, None)
+    if regimen_keys:
+        try:
+            _save_app_settings({
+                "medication_alerts": MEDICATION_ALERT_SETTINGS,
+                "medication_regimens": MEDICATION_REGIMENS,
+            })
+        except OSError:
+            errors.append("pautas de medicación: no se pudieron limpiar los ajustes")
 
     # Retiramos avisos activos del bebé. No modificamos existencias de Grocy: este
     # proceso limpia el historial de Baby Buddy, no el inventario físico.

@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.6-es18.6"
+version: "2.0.7-es18.7"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con navegación móvil inferior, pautas flexibles de medicación, avisos configurables, ajustes de bebés, modo noche, auditoría, calendario, Grocy y Telegram."
+description: "Panel en castellano para Baby Buddy con navegación móvil, pautas de medicación editables (dosis e intervalo), avisos configurables, ajustes de bebés, modo noche, auditoría, calendario, Grocy y Telegram."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"

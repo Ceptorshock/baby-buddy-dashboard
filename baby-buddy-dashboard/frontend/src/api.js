@@ -7,6 +7,7 @@ const UNDO_PATH = "./api/undo-entry";
 const CURRENT_USER_PATH = "./api/current-user";
 const AUDIT_PATH = "./api/audit";
 const DASHBOARD_SETTINGS_PATH = "./api/dashboard-settings";
+const MEDICATION_REGIMENS_PATH = "./api/medication-regimens";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -251,6 +252,43 @@ export const api = {
     if (!response.ok) throw new Error(`Settings API error ${response.status}`);
     return response.json();
   },
+  getMedicationRegimens: async (childId) => {
+    const response = await fetch(`${MEDICATION_REGIMENS_PATH}/${childId}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Medication-regimen API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+  setMedicationRegimen: async (childId, data) => {
+    const response = await fetch(`${MEDICATION_REGIMENS_PATH}/${childId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Medication-regimen API error ${response.status}`);
+    }
+    return response.json();
+  },
+  deleteMedicationRegimen: async (childId, name) => {
+    const response = await fetch(`${MEDICATION_REGIMENS_PATH}/${childId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Medication-regimen API error ${response.status}`);
+    }
+    return response.json();
+  },
+
   setMedicationAlertSettings: async (data) => {
     const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/medication-alerts`, {
       method: "PUT",
