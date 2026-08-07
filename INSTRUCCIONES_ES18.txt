@@ -1,6 +1,13 @@
+
+ES18.1 — CORRECCIÓN DE EDICIÓN DE CITAS
+----------------------------------------
+- Activa el lápiz de edición en calendarios de Google que permiten crear y borrar.
+- Cuando Google no ofrece actualización nativa, crea y confirma la cita modificada antes de borrar la anterior.
+- Si la sustitución falla, conserva la cita original y muestra un aviso para evitar pérdida de datos.
+
 BABY BUDDY DASHBOARD ES18 — MODO NOCHE, MEDICAMENTOS Y AUDITORÍA
 =================================================================
-Versión: 2.0.0-es18
+Versión: 2.0.1-es18.1
 
 QUÉ AÑADE
 ---------
@@ -83,7 +90,7 @@ INSTALACIÓN
 4. Home Assistant > Ajustes > Complementos > Tienda de complementos.
 5. Menú de tres puntos > Recargar o Buscar actualizaciones.
 6. Abre Baby Buddy Dashboard ES y pulsa Reconstruir/Actualizar.
-7. Confirma la versión 2.0.0-es18.
+7. Confirma la versión 2.0.1-es18.1.
 8. Revisa la configuración y guarda.
 9. Inicia el complemento.
 10. En Firefox pulsa Ctrl+F5.

@@ -659,7 +659,13 @@ async def _calendar_write_capability(entity_id: str) -> dict:
 
     can_create = bool(supported_features & 1)
     can_delete = bool(supported_features & 2)
-    can_update = bool(supported_features & 4)
+    can_update_native = bool(supported_features & 4)
+    # Google Calendar currently exposes create + delete but not UPDATE_EVENT.
+    # In that case the dashboard can still edit safely by creating the revised
+    # event, confirming it exists, and only then deleting the original.
+    can_replace = can_create and can_delete
+    can_update = can_update_native or can_replace
+    update_mode = "native" if can_update_native else ("replace" if can_replace else "none")
     services: set[str] = set()
     try:
         services = await _get_ha_services()
@@ -680,6 +686,9 @@ async def _calendar_write_capability(entity_id: str) -> dict:
         "writable": can_create,
         "can_create": can_create,
         "can_update": can_update,
+        "can_update_native": can_update_native,
+        "can_replace": can_replace,
+        "update_mode": update_mode,
         "can_delete": can_delete,
         "write_error": create_error,
         "supported_features": supported_features,
@@ -1594,20 +1603,8 @@ async def get_calendar_events():
     return {"available": bool(SUPERVISOR_TOKEN), "calendars": calendars}
 
 
-@app.post("/api/calendar-events/{child_id}")
-async def create_calendar_event(child_id: int, request: Request):
-    entity_id = CALENDAR_ENTITIES.get(child_id)
-    if not entity_id:
-        raise HTTPException(404, f"No calendar configured for child {child_id}")
-    capability = await _calendar_write_capability(entity_id)
-    if not capability.get("can_create"):
-        raise HTTPException(409, capability.get("write_error") or "Calendar is read-only")
-    try:
-        payload = await request.json()
-    except json.JSONDecodeError:
-        raise HTTPException(400, "Invalid JSON body")
-    event = _calendar_event_payload(payload)
-
+async def _create_calendar_event_in_ha(entity_id: str, event: dict) -> str:
+    """Create an event and return the Home Assistant path used."""
     used_method = "websocket"
     try:
         await _ha_ws_command({
@@ -1638,7 +1635,94 @@ async def create_calendar_event(child_id: int, request: Request):
                 failures.append(f"{action}: {exc.detail}")
         if not used_method:
             raise HTTPException(502, " | ".join(failures))
+    return used_method
 
+
+async def _delete_calendar_event_in_ha(
+    entity_id: str,
+    uid: str,
+    recurrence_id: str = "",
+    recurrence_range: str = "",
+):
+    command = {
+        "type": "calendar/event/delete",
+        "entity_id": entity_id,
+        "uid": uid,
+    }
+    if recurrence_id:
+        command["recurrence_id"] = recurrence_id
+    if recurrence_range:
+        command["recurrence_range"] = recurrence_range
+    await _ha_ws_command(command)
+
+
+def _calendar_wall_minute(value) -> str:
+    """Normalize an event datetime to its displayed wall-clock minute."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text[:16].replace("T", " ")
+    # The form sends local wall time without an offset and Home Assistant returns
+    # that same wall time with an offset. Comparing the wall components avoids a
+    # false mismatch caused by attaching UTC to the form value.
+    return parsed.replace(tzinfo=None, second=0, microsecond=0).isoformat(timespec="minutes")
+
+
+def _calendar_event_matches(raw: dict, event: dict, excluded_uid: str = "") -> bool:
+    raw_uid = str(raw.get("uid") or "").strip()
+    if excluded_uid and raw_uid == excluded_uid:
+        return False
+    raw_start, _ = _calendar_start(raw)
+    raw_end, _ = _calendar_end(raw)
+    return (
+        str(raw.get("summary") or "").strip() == event["summary"]
+        and _calendar_wall_minute(raw_start) == _calendar_wall_minute(event["dtstart"])
+        and _calendar_wall_minute(raw_end) == _calendar_wall_minute(event["dtend"])
+    )
+
+
+async def _confirm_created_calendar_event(
+    entity_id: str,
+    event: dict,
+    excluded_uid: str = "",
+) -> dict | None:
+    """Wait briefly for Google/HA calendar propagation and return the new event."""
+    for delay in (0.25, 0.55, 1.0, 1.7):
+        await asyncio.sleep(delay)
+        try:
+            events = await _get_calendar_events(entity_id)
+        except HTTPException:
+            continue
+        match = next(
+            (item for item in events if _calendar_event_matches(item, event, excluded_uid)),
+            None,
+        )
+        if match:
+            return match
+        try:
+            await _call_ha_service("homeassistant.update_entity", {"entity_id": entity_id})
+        except HTTPException:
+            pass
+    return None
+
+
+@app.post("/api/calendar-events/{child_id}")
+async def create_calendar_event(child_id: int, request: Request):
+    entity_id = CALENDAR_ENTITIES.get(child_id)
+    if not entity_id:
+        raise HTTPException(404, f"No calendar configured for child {child_id}")
+    capability = await _calendar_write_capability(entity_id)
+    if not capability.get("can_create"):
+        raise HTTPException(409, capability.get("write_error") or "Calendar is read-only")
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+    event = _calendar_event_payload(payload)
+    used_method = await _create_calendar_event_in_ha(entity_id, event)
     await _refresh_calendar_entity(entity_id)
     return {"created": True, "verified": True, "service": used_method, "entity_id": entity_id, **event}
 
@@ -1692,21 +1776,64 @@ async def update_calendar_event(child_id: int, request: Request):
     if not uid:
         raise HTTPException(400, "La cita no incluye un identificador editable")
     event = _calendar_event_payload(payload)
-    command = {
-        "type": "calendar/event/update",
-        "entity_id": entity_id,
-        "uid": uid,
-        "event": event,
-    }
     recurrence_id = str(payload.get("recurrence_id") or "").strip()
     recurrence_range = str(payload.get("recurrence_range") or "").strip()
-    if recurrence_id:
-        command["recurrence_id"] = recurrence_id
-    if recurrence_range:
-        command["recurrence_range"] = recurrence_range
-    await _ha_ws_command(command)
+
+    if capability.get("can_update_native"):
+        command = {
+            "type": "calendar/event/update",
+            "entity_id": entity_id,
+            "uid": uid,
+            "event": event,
+        }
+        if recurrence_id:
+            command["recurrence_id"] = recurrence_id
+        if recurrence_range:
+            command["recurrence_range"] = recurrence_range
+        await _ha_ws_command(command)
+        await _refresh_calendar_entity(entity_id)
+        return {"updated": True, "update_mode": "native", "entity_id": entity_id, "uid": uid, **event}
+
+    # Google Calendar exposes CREATE_EVENT + DELETE_EVENT but not UPDATE_EVENT.
+    # Create and confirm the revised event first so a failed creation never
+    # destroys the original. Then remove the original event.
+    used_method = await _create_calendar_event_in_ha(entity_id, event)
+    created = await _confirm_created_calendar_event(entity_id, event, excluded_uid=uid)
+    if not created:
+        raise HTTPException(
+            502,
+            "La cita modificada se envió, pero Google Calendar todavía no la ha confirmado. "
+            "La cita original se ha conservado; revisa el calendario antes de repetir la edición.",
+        )
+    new_uid = str(created.get("uid") or "").strip()
+    try:
+        await _delete_calendar_event_in_ha(entity_id, uid, recurrence_id, recurrence_range)
+    except HTTPException as delete_exc:
+        rollback_ok = False
+        if new_uid:
+            try:
+                await _delete_calendar_event_in_ha(entity_id, new_uid)
+                rollback_ok = True
+            except HTTPException:
+                pass
+        if rollback_ok:
+            detail = "No se pudo sustituir la cita. Se eliminó la copia nueva y se conservó la original."
+        else:
+            detail = (
+                "La cita nueva se creó, pero no se pudo borrar la anterior. Puede haber un duplicado. "
+                "Revisa el calendario antes de volver a intentarlo."
+            )
+        raise HTTPException(502, f"{detail} Detalle: {delete_exc.detail}")
+
     await _refresh_calendar_entity(entity_id)
-    return {"updated": True, "entity_id": entity_id, "uid": uid, **event}
+    return {
+        "updated": True,
+        "update_mode": "replace",
+        "service": used_method,
+        "entity_id": entity_id,
+        "uid": new_uid or uid,
+        **event,
+    }
 
 
 @app.delete("/api/calendar-events/{child_id}")
@@ -1724,18 +1851,9 @@ async def delete_calendar_event(child_id: int, request: Request):
     uid = str(payload.get("uid") or "").strip()
     if not uid:
         raise HTTPException(400, "La cita no incluye un identificador borrable")
-    command = {
-        "type": "calendar/event/delete",
-        "entity_id": entity_id,
-        "uid": uid,
-    }
     recurrence_id = str(payload.get("recurrence_id") or "").strip()
     recurrence_range = str(payload.get("recurrence_range") or "").strip()
-    if recurrence_id:
-        command["recurrence_id"] = recurrence_id
-    if recurrence_range:
-        command["recurrence_range"] = recurrence_range
-    await _ha_ws_command(command)
+    await _delete_calendar_event_in_ha(entity_id, uid, recurrence_id, recurrence_range)
     await _refresh_calendar_entity(entity_id)
     return {"deleted": True, "entity_id": entity_id, "uid": uid}
 
