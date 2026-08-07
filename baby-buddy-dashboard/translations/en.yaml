@@ -14,18 +14,6 @@ configuration:
   unit_system:
     name: Unit System
     description: "Unit labels for measurements (metric: kg, cm, mL, °C — imperial: lb, in, oz, °F)"
-  bollito2_enabled:
-    name: Bollito2 enabled
-    description: "Enable Bollito2 throughout the app. Leave it off until the second child profile is needed."
-  disabled_child_ids:
-    name: Other disabled children (advanced)
-    description: "Comma-separated child IDs the dashboard must ignore completely. Example: 2"
-  medication_alert_enabled:
-    name: Medication alerts
-    description: "Notify when the next medication time is reached according to the recorded interval"
-  medication_alert_minutes_before:
-    name: Medication alert lead time
-    description: "Minutes before the next dose time. Use 0 to notify at the scheduled time"
   diaper_size_entities:
     name: Diaper sizes per child
     description: "Maps each Baby Buddy child ID to its Home Assistant diaper-size input_select helper"

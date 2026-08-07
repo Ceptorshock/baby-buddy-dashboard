@@ -20,7 +20,7 @@ const UNITS = [
   { value: "tablets", label: "comprimidos" },
 ];
 
-export default function MedicationForm({ childId, entry, prefill, onDone, onClose }) {
+export default function MedicationForm({ childId, entry, prefill, regimenOnly = false, onDone, onClose }) {
   const isEdit = !!entry;
   const source = entry || prefill || {};
   const initialInterval = parseInterval(source?.next_dose_interval);
@@ -40,11 +40,11 @@ export default function MedicationForm({ childId, entry, prefill, onDone, onClos
     setSaving(true);
     setError("");
     try {
-      const data = { name: name.trim(), time: `${time}:00` };
-      if (dosage !== "") {
+      const data = regimenOnly ? {} : { name: name.trim(), time: `${time}:00` };
+      if (!regimenOnly && dosage !== "") {
         data.dosage = Number(dosage);
         if (dosageUnit) data.dosage_unit = dosageUnit;
-      } else if (isEdit && entry?.dosage !== null && entry?.dosage !== undefined) {
+      } else if (!regimenOnly && isEdit && entry?.dosage !== null && entry?.dosage !== undefined) {
         data.dosage = null;
       }
       const hours = Math.max(0, Number(intervalHours || 0));
@@ -54,8 +54,10 @@ export default function MedicationForm({ childId, entry, prefill, onDone, onClos
       } else if (isEdit && entry?.next_dose_interval) {
         data.next_dose_interval = null;
       }
-      if (notes.trim()) data.notes = notes.trim();
-      else if (isEdit && entry?.notes) data.notes = "";
+      if (!regimenOnly) {
+        if (notes.trim()) data.notes = notes.trim();
+        else if (isEdit && entry?.notes) data.notes = "";
+      }
 
       if (isEdit) {
         await api.updateMedication(entry.id, data);
@@ -72,8 +74,9 @@ export default function MedicationForm({ childId, entry, prefill, onDone, onClos
   };
 
   return (
-    <Modal title={isEdit ? "Editar medicamento" : prefill ? "Registrar dosis programada" : "Registrar medicamento"} onClose={onClose}>
+    <Modal title={regimenOnly ? `Editar pauta · ${name || "Medicamento"}` : isEdit ? "Editar medicamento" : prefill ? "Registrar dosis" : "Registrar medicamento"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
+        {!regimenOnly && <>
         <FormField label="Medicamento">
           <FormInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Paracetamol" autoFocus required />
         </FormField>
@@ -88,6 +91,8 @@ export default function MedicationForm({ childId, entry, prefill, onDone, onClos
         <FormField label="Hora administrada">
           <FormInput type="datetime-local" value={time} onChange={(e) => setTime(e.target.value)} required />
         </FormField>
+        </>}
+        {regimenOnly && <div className="form-help" style={{ marginBottom: 12 }}>Cambia solo el intervalo de la pauta. No registra una nueva dosis ni modifica su hora de administración.</div>}
         <FormField label="Intervalo hasta la próxima dosis (opcional)">
           <div className="form-two-columns">
             <FormInput type="number" min="0" max="168" value={intervalHours} onChange={(e) => setIntervalHours(e.target.value)} placeholder="Horas" />
@@ -95,12 +100,12 @@ export default function MedicationForm({ childId, entry, prefill, onDone, onClos
           </div>
           <div className="form-help">Es solo un recordatorio de la pauta que introduzcáis; la app no calcula una dosis médica.</div>
         </FormField>
-        <FormField label="Notas">
+        {!regimenOnly && <FormField label="Notas">
           <textarea className="form-textarea" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
-        </FormField>
+        </FormField>}
         {error && <div className="form-error">{error}</div>}
         <FormButton color={colors.medication} disabled={saving || !name.trim()}>
-          {saving ? "Guardando..." : isEdit ? "Actualizar medicamento" : prefill ? "Registrar esta dosis" : "Guardar medicamento"}
+          {saving ? "Guardando..." : regimenOnly ? "Guardar pauta" : isEdit ? "Actualizar medicamento" : prefill ? "Registrar esta dosis" : "Guardar medicamento"}
         </FormButton>
       </form>
     </Modal>

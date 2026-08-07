@@ -100,10 +100,11 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     setSavingMedication(entry.id);
     vibrate();
     try {
+      const administeredNow = new Date();
       const payload = {
         child: data.child.id,
         name: entry.name,
-        time: localTimestamp(nextAt),
+        time: localTimestamp(administeredNow),
         next_dose_interval: entry.next_dose_interval,
       };
       if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") payload.dosage = entry.dosage;
@@ -111,7 +112,7 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
       if (entry.notes) payload.notes = entry.notes;
       const created = await api.createMedication(payload);
       onCreated({ type: "medication", id: created.id, label: entry.name, childId: data.child.id });
-      setMessage(`${entry.name} registrado a las ${clock(nextAt)}`);
+      setMessage(`${entry.name} registrado ahora · ${clock(administeredNow)}`);
       await data.refetch();
     } catch (error) {
       setMessage(`Error: ${error.message}`);
@@ -190,10 +191,11 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
                   <span>{due ? "Pendiente" : "Próxima"} · {clock(nextAt)}</span>
                 </div>
                 <div className="night-medication-actions">
-                  <button disabled={!due || savingMedication === entry.id} onClick={() => quickMedication({ entry, nextAt })}>
-                    {savingMedication === entry.id ? "…" : `Registrar ${clock(nextAt)}`}
+                  <button disabled={savingMedication === entry.id} onClick={() => quickMedication({ entry, nextAt })}>
+                    {savingMedication === entry.id ? "…" : `Dar ahora · ${clock(new Date())}`}
                   </button>
-                  <button title="Modificar antes de registrar" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, time: nextAt.toISOString() } })}><Icons.Pencil /></button>
+                  <button title="Dar con cambios" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, time: new Date().toISOString() } })}><Icons.Pencil /></button>
+                  <button title="Editar pauta sin registrar dosis" onClick={() => onOpenForm({ type: "medication", entry, regimenOnly: true })}><Icons.Settings /></button>
                   <button title="Finalizar pauta" onClick={() => endRegimen(entry)}><Icons.X /></button>
                 </div>
               </div>

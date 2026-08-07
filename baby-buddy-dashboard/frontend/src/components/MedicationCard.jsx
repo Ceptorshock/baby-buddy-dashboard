@@ -53,17 +53,18 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     setBusyId(`dose:${entry.id}`);
     setMessage("");
     try {
+      const administeredNow = new Date();
       const data = {
         child: childId,
         name: entry.name,
-        time: localTimestamp(nextAt),
+        time: localTimestamp(administeredNow),
         next_dose_interval: entry.next_dose_interval,
       };
       if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") data.dosage = entry.dosage;
       if (entry.dosage_unit) data.dosage_unit = entry.dosage_unit;
       if (entry.notes) data.notes = entry.notes;
       const created = await api.createMedication(data);
-      setMessage(`${entry.name} registrado a las ${formatTime(nextAt)}. Próxima dosis recalculada según la pauta.`);
+      setMessage(`${entry.name} registrado ahora (${formatTime(administeredNow)}). Próxima dosis calculada desde la hora real.`);
       onCreateScheduled?.({ type: "medication", id: created.id, label: entry.name, childId });
       await onChanged?.();
     } catch (error) {
@@ -108,20 +109,28 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
                     <button
                       type="button"
                       className="medication-quick-dose"
-                      disabled={!due || busyId === `dose:${entry.id}`}
-                      title={due ? `Registrar la dosis programada de las ${formatTime(nextAt)}` : `Disponible a las ${formatTime(nextAt)}`}
+                      disabled={busyId === `dose:${entry.id}`}
+                      title={`Registrar ahora. Hora prevista: ${formatTime(nextAt)}`}
                       onClick={() => registerScheduledDose({ entry, nextAt })}
                     >
                       <Icons.Pill />
-                      {busyId === `dose:${entry.id}` ? "Guardando…" : `Registrar ${formatTime(nextAt)}`}
+                      {busyId === `dose:${entry.id}` ? "Guardando…" : `Dar ahora · ${formatTime(new Date())}`}
                     </button>
                     <button
                       type="button"
                       className="medication-icon-btn"
-                      title="Modificar esta dosis antes de registrarla"
-                      onClick={() => onEditEntry?.("medication", null, { ...entry, time: nextAt.toISOString() })}
+                      title="Dar ahora modificando dosis, hora o intervalo"
+                      onClick={() => onEditEntry?.("medication", null, { ...entry, time: new Date().toISOString() })}
                     >
                       <Icons.Pencil />
+                    </button>
+                    <button
+                      type="button"
+                      className="medication-icon-btn"
+                      title="Editar solo la pauta, sin registrar una dosis"
+                      onClick={() => onEditEntry?.("medication", entry, null, { regimenOnly: true })}
+                    >
+                      <Icons.Settings />
                     </button>
                     <button
                       type="button"

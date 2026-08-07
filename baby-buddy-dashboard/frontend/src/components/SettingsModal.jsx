@@ -29,6 +29,8 @@ export default function SettingsModal({ onClose, onChanged }) {
   const [confirmation, setConfirmation] = useState("");
   const [includeAudit, setIncludeAudit] = useState(true);
   const [resetResult, setResetResult] = useState(null);
+  const [medicationAlerts, setMedicationAlerts] = useState({ enabled: true, minutes_before: 20, alert_at_due: true, ha_mobile: true, telegram: true });
+  const [savingAlerts, setSavingAlerts] = useState(false);
 
   const children = settings.children || [];
   const enabledCount = useMemo(() => children.filter((child) => child.enabled).length, [children]);
@@ -38,6 +40,7 @@ export default function SettingsModal({ onClose, onChanged }) {
       setError("");
       const result = await api.getDashboardSettings();
       setSettings(result || { children: [] });
+      if (result?.medication_alerts) setMedicationAlerts(result.medication_alerts);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -126,6 +129,21 @@ export default function SettingsModal({ onClose, onChanged }) {
     }
   };
 
+  const saveMedicationAlerts = async () => {
+    setSavingAlerts(true);
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.setMedicationAlertSettings(medicationAlerts);
+      setMedicationAlerts(saved);
+      setMessage("Avisos de medicación actualizados.");
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
   return (
     <Modal title="Ajustes" onClose={onClose} maxWidth={680}>
       <div className="settings-intro">
@@ -138,6 +156,34 @@ export default function SettingsModal({ onClose, onChanged }) {
 
       {error && <div className="settings-error">{error}</div>}
       {message && <div className="settings-success">{message}</div>}
+
+      <section className="settings-child-card is-enabled" style={{ marginBottom: 16 }}>
+        <div className="settings-child-head">
+          <div className="settings-child-avatar"><Icons.Pill /></div>
+          <div className="settings-child-title">
+            <strong>Avisos de medicación</strong>
+            <span>Configura cuándo y por dónde avisar de una pauta activa.</span>
+          </div>
+          <label className="settings-switch">
+            <input type="checkbox" checked={Boolean(medicationAlerts.enabled)} onChange={(e) => setMedicationAlerts({ ...medicationAlerts, enabled: e.target.checked })} />
+            <span className="settings-switch-track"><span /></span>
+            <em>{medicationAlerts.enabled ? "Activos" : "Desactivados"}</em>
+          </label>
+        </div>
+        <div className="settings-editor" style={{ marginTop: 10 }}>
+          <div className="settings-fields-grid">
+            <label>
+              <span>Avisar antes de la dosis</span>
+              <FormInput type="number" min="0" max="120" value={medicationAlerts.minutes_before ?? 20} onChange={(e) => setMedicationAlerts({ ...medicationAlerts, minutes_before: Number(e.target.value || 0) })} />
+              <small>Minutos. Recomendado: 20.</small>
+            </label>
+          </div>
+          <label className="settings-check-row"><input type="checkbox" checked={Boolean(medicationAlerts.alert_at_due)} onChange={(e) => setMedicationAlerts({ ...medicationAlerts, alert_at_due: e.target.checked })} /><span>Avisar de nuevo al llegar/pasar la hora</span></label>
+          <label className="settings-check-row"><input type="checkbox" checked={Boolean(medicationAlerts.ha_mobile)} onChange={(e) => setMedicationAlerts({ ...medicationAlerts, ha_mobile: e.target.checked })} /><span>Home Assistant y móviles configurados</span></label>
+          <label className="settings-check-row"><input type="checkbox" checked={Boolean(medicationAlerts.telegram)} onChange={(e) => setMedicationAlerts({ ...medicationAlerts, telegram: e.target.checked })} /><span>Telegram</span></label>
+          <div className="settings-editor-actions"><button className="settings-primary" onClick={saveMedicationAlerts} disabled={savingAlerts}>{savingAlerts ? "Guardando…" : "Guardar avisos"}</button></div>
+        </div>
+      </section>
 
       {loading ? (
         <div className="settings-loading">Leyendo bebés de Baby Buddy…</div>
@@ -218,7 +264,7 @@ export default function SettingsModal({ onClose, onChanged }) {
                     <p>Las existencias de Grocy no se modifican durante esta limpieza.</p>
                     <label className="settings-check-row">
                       <input type="checkbox" checked={includeAudit} onChange={(e) => setIncludeAudit(e.target.checked)} />
-                      <span>Borrar también el registro de cambios de pruebas de esta app</span>
+                      <span>Borrar también el historial de auditoría de este bebé</span>
                     </label>
                     <label className="settings-confirm-label">
                       Para confirmar, escribe <code>BORRAR {child.first_name || "Bebé"}</code>

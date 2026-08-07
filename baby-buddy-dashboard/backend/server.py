@@ -446,11 +446,21 @@ def _load_known_child_ids() -> set[int] | None:
     return None
 
 
-def _save_app_settings():
+def _save_app_settings(extra: dict | None = None):
     APP_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"disabled_child_ids": sorted(DISABLED_CHILD_IDS)}
+    payload = {}
+    if APP_SETTINGS_PATH.exists():
+        try:
+            current = json.loads(APP_SETTINGS_PATH.read_text())
+            if isinstance(current, dict):
+                payload.update(current)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    payload["disabled_child_ids"] = sorted(DISABLED_CHILD_IDS)
     if KNOWN_CHILD_IDS is not None:
         payload["known_child_ids"] = sorted(KNOWN_CHILD_IDS)
+    if extra:
+        payload.update(extra)
     temporary = APP_SETTINGS_PATH.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     temporary.replace(APP_SETTINGS_PATH)
@@ -508,9 +518,37 @@ ALERTS_CONFIG = {
     "room_temp_min": float(OPTIONS.get("room_temp_min", 18) or 18),
     "room_temp_max": float(OPTIONS.get("room_temp_max", 27) or 27),
     "diaper_stock_low_threshold": int(OPTIONS.get("diaper_stock_low_threshold", 10) or 10),
-    "medication_alert_enabled": bool(OPTIONS.get("medication_alert_enabled", True)),
-    "medication_alert_minutes_before": max(0, int(OPTIONS.get("medication_alert_minutes_before", 0) or 0)),
 }
+
+def _initial_medication_alert_settings() -> dict:
+    values = {
+        "enabled": True,
+        "minutes_before": 20,
+        "alert_at_due": True,
+        "ha_mobile": True,
+        "telegram": True,
+    }
+    if APP_SETTINGS_PATH.exists():
+        try:
+            payload = json.loads(APP_SETTINGS_PATH.read_text())
+            stored = payload.get("medication_alerts") if isinstance(payload, dict) else None
+            if isinstance(stored, dict):
+                values["enabled"] = bool(stored.get("enabled", values["enabled"]))
+                values["minutes_before"] = max(0, min(120, int(stored.get("minutes_before", values["minutes_before"]))))
+                values["alert_at_due"] = bool(stored.get("alert_at_due", values["alert_at_due"]))
+                values["ha_mobile"] = bool(stored.get("ha_mobile", values["ha_mobile"]))
+                values["telegram"] = bool(stored.get("telegram", values["telegram"]))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("No se pudieron leer los ajustes de avisos de medicación")
+    return values
+
+
+MEDICATION_ALERT_SETTINGS = _initial_medication_alert_settings()
+try:
+    _save_app_settings({"medication_alerts": MEDICATION_ALERT_SETTINGS})
+except OSError:
+    logger.warning("No se pudieron persistir los ajustes de avisos de medicación")
+
 NIGHT_MODE_CONFIG = {
     "enabled": bool(OPTIONS.get("night_mode_enabled", True)),
     "start": str(OPTIONS.get("night_mode_start", "22:00") or "22:00"),
@@ -1369,8 +1407,10 @@ async def _send_alert(alert: dict):
     notification_id = _notification_id(alert["key"])
     title = alert.get("title", "Aviso de Baby Buddy")
     message = alert.get("message", "")
+    is_medication = alert.get("type") == "medication"
+    allow_ha_mobile = (not is_medication) or MEDICATION_ALERT_SETTINGS.get("ha_mobile", True)
 
-    if HOME_ASSISTANT_ALERT_NOTIFICATIONS:
+    if HOME_ASSISTANT_ALERT_NOTIFICATIONS and allow_ha_mobile:
         try:
             await _call_ha_service(
                 "persistent_notification.create",
@@ -1383,18 +1423,22 @@ async def _send_alert(alert: dict):
         except HTTPException:
             pass
 
-    for mobile_service in MOBILE_NOTIFY_SERVICES:
-        try:
-            await _call_ha_service(
-                mobile_service,
-                {
-                    "title": title,
-                    "message": message,
-                    "data": {"tag": notification_id},
-                },
-            )
-        except HTTPException:
-            pass
+    if allow_ha_mobile:
+        for mobile_service in MOBILE_NOTIFY_SERVICES:
+            try:
+                await _call_ha_service(
+                    mobile_service,
+                    {
+                        "title": title,
+                        "message": message,
+                        "data": {"tag": notification_id},
+                    },
+                )
+            except HTTPException:
+                pass
+
+    if is_medication and MEDICATION_ALERT_SETTINGS.get("telegram", True):
+        await _send_telegram_activity(f"💊 {title} · {message}")
 
     if ALEXA_NOTIFY_SERVICE and alert.get("type") in ALEXA_ALERT_TYPES:
         try:
@@ -1475,7 +1519,7 @@ async def _collect_alerts() -> list[dict]:
                     "alexa_message": f"Aviso. La actividad {timer_name} de {child_name} lleva {elapsed_minutes} minutos activa.",
                 })
 
-        if ALERTS_CONFIG.get("medication_alert_enabled"):
+        if MEDICATION_ALERT_SETTINGS.get("enabled", True):
             medications = await _baby_buddy_results(
                 "medication",
                 {"child": child_id, "limit": 50, "ordering": "-time"},
@@ -1492,8 +1536,13 @@ async def _collect_alerts() -> list[dict]:
                 if interval_seconds <= 0 or not administered:
                     continue
                 next_at = administered + timedelta(seconds=interval_seconds)
-                alert_at = next_at - timedelta(minutes=ALERTS_CONFIG.get("medication_alert_minutes_before", 0))
+                next_utc = next_at.astimezone(timezone.utc)
+                advance = max(0, int(MEDICATION_ALERT_SETTINGS.get("minutes_before", 20) or 0))
+                alert_at = next_at - timedelta(minutes=advance)
                 if now < alert_at.astimezone(timezone.utc):
+                    continue
+                due = now >= next_utc
+                if due and not MEDICATION_ALERT_SETTINGS.get("alert_at_due", True):
                     continue
                 med_name = str(medication.get("name") or "Medicamento").strip() or "Medicamento"
                 dosage = medication.get("dosage")
@@ -1502,16 +1551,17 @@ async def _collect_alerts() -> list[dict]:
                 if dosage not in (None, ""):
                     dose_text = f" · {dosage} {unit}".rstrip()
                 due_text = next_at.strftime("%H:%M")
-                advance = ALERTS_CONFIG.get("medication_alert_minutes_before", 0)
-                if advance > 0 and now < next_at.astimezone(timezone.utc):
-                    timing_text = f"está previsto a las {due_text} (en {advance} min)"
+                if due:
+                    title = f"Medicamento pendiente · {child_name}"
+                    timing_text = f"tocaba a las {due_text}"
                 else:
-                    timing_text = f"estaba previsto a las {due_text}"
+                    title = f"Medicamento próximo · {child_name}"
+                    timing_text = f"está previsto a las {due_text} (aviso {advance} min antes)"
                 alerts.append({
                     "key": f"medication_due:{child_id}:{medication.get('id', med_name.casefold())}",
                     "type": "medication",
-                    "title": f"Medicamento pendiente · {child_name}",
-                    "message": f"Según la pauta registrada, {med_name}{dose_text} {timing_text}. Abre la app para registrar la dosis programada o finalizar la pauta.",
+                    "title": title,
+                    "message": f"{med_name}{dose_text} {timing_text}. Puedes registrarlo antes o después desde la pauta activa.",
                     "alexa_message": f"Aviso. Según la pauta registrada, toca {med_name} de {child_name}.",
                 })
 
@@ -1670,7 +1720,28 @@ async def get_dashboard_settings():
             for child in children
         ],
         "disabled_child_ids": sorted(DISABLED_CHILD_IDS),
+        "medication_alerts": MEDICATION_ALERT_SETTINGS,
     }
+
+
+@app.put("/api/dashboard-settings/medication-alerts")
+async def set_medication_alert_settings(request: Request):
+    payload = await request.json()
+    MEDICATION_ALERT_SETTINGS["enabled"] = bool(payload.get("enabled", MEDICATION_ALERT_SETTINGS.get("enabled", True)))
+    try:
+        minutes = int(payload.get("minutes_before", MEDICATION_ALERT_SETTINGS.get("minutes_before", 20)))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "La antelación debe ser un número de minutos")
+    MEDICATION_ALERT_SETTINGS["minutes_before"] = max(0, min(120, minutes))
+    MEDICATION_ALERT_SETTINGS["alert_at_due"] = bool(payload.get("alert_at_due", MEDICATION_ALERT_SETTINGS.get("alert_at_due", True)))
+    MEDICATION_ALERT_SETTINGS["ha_mobile"] = bool(payload.get("ha_mobile", MEDICATION_ALERT_SETTINGS.get("ha_mobile", True)))
+    MEDICATION_ALERT_SETTINGS["telegram"] = bool(payload.get("telegram", MEDICATION_ALERT_SETTINGS.get("telegram", True)))
+    try:
+        _save_app_settings({"medication_alerts": MEDICATION_ALERT_SETTINGS})
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudieron guardar los avisos de medicación: {exc}")
+    _record_audit(request, "update", "settings", "medication_alerts", after=MEDICATION_ALERT_SETTINGS)
+    return MEDICATION_ALERT_SETTINGS
 
 
 @app.put("/api/dashboard-settings/children/{child_id}/enabled")

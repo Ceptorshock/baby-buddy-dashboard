@@ -251,6 +251,20 @@ export const api = {
     if (!response.ok) throw new Error(`Settings API error ${response.status}`);
     return response.json();
   },
+  setMedicationAlertSettings: async (data) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/medication-alerts`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Settings API error ${response.status}`);
+    }
+    return response.json();
+  },
   setChildEnabled: async (childId, enabled) => {
     const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/children/${childId}/enabled`, {
       method: "PUT",
