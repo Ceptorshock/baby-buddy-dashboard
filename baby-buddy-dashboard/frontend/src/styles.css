@@ -987,3 +987,142 @@ body {
   .tab-btn { font-size: 8px; }
   .tab-btn svg { width: 18px; height: 18px; }
 }
+
+/* ES18.10: avisos globales + evolución de temperatura */
+.tab-nav + .alerts-panel {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.section-header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.section-header-action-btn:hover { border-color: var(--text-dim); }
+.section-header-action-btn svg { width: 14px; height: 14px; }
+
+.temperature-empty {
+  min-height: 145px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 5px;
+  color: var(--text-dim);
+}
+.temperature-empty small { color: var(--text-muted); }
+
+.temperature-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.temperature-stat {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.temperature-stat > span {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .035em;
+}
+.temperature-stat > strong { color: var(--text); font-size: 18px; line-height: 1.15; }
+.temperature-stat > small { color: var(--text-muted); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.temperature-stat-primary {
+  background: rgba(239, 108, 112, 0.05);
+}
+
+.temperature-chart-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 2px 8px;
+}
+.temperature-chart-heading > div { display: flex; flex-direction: column; gap: 2px; }
+.temperature-chart-heading strong { font-size: 12px; color: var(--text); }
+.temperature-chart-heading span,
+.temperature-chart-heading > small { font-size: 9px; color: var(--text-muted); }
+.temperature-chart { height: 190px; cursor: pointer; }
+.temperature-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0,0,0,.18);
+  color: var(--text);
+  font-size: 11px;
+}
+.temperature-tooltip strong { font-size: 11px; text-transform: capitalize; }
+.temperature-tooltip small { color: var(--text-dim); }
+
+.temperature-day-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.temperature-day-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.temperature-day-summary span { font-size: 10px; color: var(--text-dim); }
+.temperature-day-summary strong { font-size: 17px; color: var(--text); }
+.temperature-day-list {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.temperature-day-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.temperature-day-entry:last-child { border-bottom: 0; }
+.temperature-day-entry span { color: var(--text-dim); font-size: 12px; }
+.temperature-day-entry strong { color: var(--text); font-size: 14px; }
+.temperature-day-note { margin-top: 10px; color: var(--text-muted); font-size: 10px; text-align: center; }
+
+@media (max-width: 700px) {
+  .tab-nav + .alerts-panel { margin-left: 0; margin-right: 0; }
+  .temperature-stat-grid { grid-template-columns: 1fr 1fr; }
+  .temperature-stat:first-child { grid-column: 1 / -1; }
+  .temperature-chart-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .temperature-chart { height: 180px; }
+  .temperature-day-summary { grid-template-columns: 1fr 1fr 1fr; }
+  .temperature-day-summary > div { padding: 10px 8px; }
+  .temperature-day-summary strong { font-size: 15px; }
+}

@@ -344,17 +344,19 @@ export default function App() {
         ))}
       </nav>
 
+      {/* Avisos globales: visibles en todas las pestañas */}
+      <AlertsPanel
+        config={data.alertsConfig}
+        weeklyFeedings={data.weeklyFeedings}
+        activeTimers={timer.activeTimers}
+        elapsedMap={timer.elapsedMap}
+        roomStatus={data.roomStatus}
+      />
+
       {/* Tab Content */}
       <main className="tab-content">
         {activeTab === "overview" && (
           <>
-            <AlertsPanel
-              config={data.alertsConfig}
-              weeklyFeedings={data.weeklyFeedings}
-              activeTimers={timer.activeTimers}
-              elapsedMap={timer.elapsedMap}
-              roomStatus={data.roomStatus}
-            />
             <NowPanel
               weeklyFeedings={data.weeklyFeedings}
               weeklySleep={data.weeklySleep}
