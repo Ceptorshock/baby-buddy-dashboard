@@ -8,6 +8,13 @@ export const Icons = {
       <path d="M10 10c.5.5 3.5.5 4 0" />
     </svg>
   ),
+  Diaper: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7.5c1.7 1.2 3.5 1.8 5.4 1.8h5.2c1.9 0 3.7-.6 5.4-1.8v7.2c0 3.5-2.8 6.3-6.3 6.3h-3.4A6.3 6.3 0 0 1 4 14.7Z" />
+      <path d="M4 7.5V4.8c1.7.9 3.5 1.4 5.4 1.4h5.2c1.9 0 3.7-.5 5.4-1.4v2.7" />
+      <path d="M8 9.1c0 2.2-1 4.1-3.4 5.7M16 9.1c0 2.2 1 4.1 3.4 5.7" />
+    </svg>
+  ),
   Bottle: () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M10 2h4v3h-4z" />

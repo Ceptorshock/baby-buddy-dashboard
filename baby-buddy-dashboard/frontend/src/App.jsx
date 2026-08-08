@@ -29,6 +29,7 @@ import UndoToast from "./components/UndoToast";
 import MedicationCard from "./components/MedicationCard";
 import NightModePanel from "./components/NightModePanel";
 import SettingsModal from "./components/SettingsModal";
+import DiaperStockModal from "./components/DiaperStockModal";
 import HealthSummary from "./components/HealthSummary";
 import { api } from "./api";
 import "./styles.css";
@@ -241,6 +242,9 @@ export default function App() {
           )}
           <button className="refresh-btn" onClick={data.refetch} title="Actualizar / estado de conexión">
             <Icons.Activity />
+          </button>
+          <button className="refresh-btn diaper-stock-header-btn" onClick={() => setModal({ type: "diaper-stock" })} title="Stock de pañales">
+            <Icons.Diaper />
           </button>
           <button className="refresh-btn settings-header-btn" onClick={() => setModal({ type: "settings" })} title="Ajustes">
             <Icons.Settings />
@@ -640,6 +644,13 @@ export default function App() {
           childId={data.child?.id}
           event={modal.entry}
           onDone={async () => { closeModal(); await data.refreshCalendars(); }}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "diaper-stock" && (
+        <DiaperStockModal
+          activeSize={data.diaperSize?.state}
+          onChanged={data.refetch}
           onClose={closeModal}
         />
       )}

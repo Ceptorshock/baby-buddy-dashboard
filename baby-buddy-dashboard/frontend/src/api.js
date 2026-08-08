@@ -1,6 +1,7 @@
 const API_BASE = "./api/baby-buddy";
 const CONFIG_PATH = "./api/config";
 const DIAPER_SIZES_PATH = "./api/diaper-sizes";
+const DIAPER_STOCK_PATH = "./api/diaper-stock";
 const ROOM_STATUS_PATH = "./api/room-status";
 const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
@@ -134,6 +135,29 @@ export const api = {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       throw new Error(`Diaper-size API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+
+  getDiaperStock: async () => {
+    const response = await fetch(DIAPER_STOCK_PATH);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Diaper-stock API error ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+  adjustDiaperStock: async (productId, delta) => {
+    const response = await fetch(`${DIAPER_STOCK_PATH}/${productId}/adjust`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Diaper-stock API error ${response.status}`);
     }
     return response.json();
   },
