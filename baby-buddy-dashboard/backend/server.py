@@ -57,6 +57,30 @@ def _init_audit_db():
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_audit_child_time ON audit_log(child_id, timestamp DESC)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS diaper_purchase_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                product_id INTEGER NOT NULL,
+                size TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                user_display_name TEXT NOT NULL DEFAULT 'Acceso directo'
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS diaper_purchase_overrides (
+                purchase_key TEXT PRIMARY KEY,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                product_id INTEGER,
+                size TEXT,
+                amount INTEGER,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         connection.commit()
 
 
@@ -483,6 +507,10 @@ CALENDAR_FULL_MAX_EVENTS = max(10, int(OPTIONS.get("calendar_full_max_events", 2
 GROCY_CONSUME_SERVICE = str(OPTIONS.get("grocy_consume_service", "rest_command.grocy_consumir_panal") or "").strip()
 GROCY_RESTORE_SERVICE = str(OPTIONS.get("grocy_restore_service", "") or "").strip()
 GROCY_STOCK_ENTITY = str(OPTIONS.get("grocy_stock_entity", "sensor.grocy_stock_por_ubicacion") or "").strip()
+GROCY_URL = str(OPTIONS.get("grocy_url", "") or "").strip().rstrip("/")
+GROCY_API_KEY = str(OPTIONS.get("grocy_api_key", "") or "").strip()
+if GROCY_URL.endswith("/api"):
+    GROCY_URL = GROCY_URL[:-4]
 HOME_ASSISTANT_ALERT_NOTIFICATIONS = bool(OPTIONS.get("home_assistant_alert_notifications", True))
 MOBILE_NOTIFY_SERVICE = str(OPTIONS.get("mobile_notify_service", "") or "").strip()
 MOBILE_NOTIFY_SERVICES = _parse_service_list(OPTIONS.get("mobile_notify_services", ""))
@@ -1040,6 +1068,200 @@ async def _all_diaper_stocks() -> dict:
         "can_remove": bool(GROCY_CONSUME_SERVICE),
         "items": items,
     }
+
+
+
+def _size_for_product(product_id: int) -> str | None:
+    return next((name for name, pid in DIAPER_PRODUCT_IDS.items() if int(pid) == int(product_id)), None)
+
+
+def _save_diaper_purchase_event(request: Request, product_id: int, amount: int):
+    size = _size_for_product(product_id)
+    if not size or amount <= 0:
+        return
+    user = _request_user(request)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute(
+            "INSERT INTO diaper_purchase_events (timestamp, product_id, size, amount, user_display_name) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now(timezone.utc).isoformat(), int(product_id), size, int(amount), user["display_name"]),
+        )
+        connection.commit()
+
+
+def _local_diaper_purchase_history(limit: int = 40) -> list[dict]:
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(
+            "SELECT id, timestamp, product_id, size, amount, user_display_name FROM diaper_purchase_events ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 200)),),
+        ).fetchall()
+    return [
+        {
+            "key": f"app:{row[0]}",
+            "timestamp": row[1],
+            "product_id": int(row[2]),
+            "size": row[3],
+            "amount": int(row[4]),
+            "source": "app",
+            "source_label": "App",
+            "user": row[5] or "Acceso directo",
+        }
+        for row in rows
+    ]
+
+
+def _purchase_overrides() -> dict[str, dict]:
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(
+            "SELECT purchase_key, hidden, product_id, size, amount, updated_at FROM diaper_purchase_overrides"
+        ).fetchall()
+    return {
+        str(row[0]): {
+            "hidden": bool(row[1]),
+            "product_id": row[2],
+            "size": row[3],
+            "amount": row[4],
+            "updated_at": row[5],
+        }
+        for row in rows
+    }
+
+
+def _set_purchase_override(purchase_key: str, *, hidden: bool, product_id: int | None, size: str | None, amount: int | None):
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO diaper_purchase_overrides (purchase_key, hidden, product_id, size, amount, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(purchase_key) DO UPDATE SET
+                hidden=excluded.hidden,
+                product_id=excluded.product_id,
+                size=excluded.size,
+                amount=excluded.amount,
+                updated_at=excluded.updated_at
+            """,
+            (purchase_key, 1 if hidden else 0, product_id, size, amount, datetime.now(timezone.utc).isoformat()),
+        )
+        connection.commit()
+
+
+async def _grocy_diaper_purchase_history(limit: int = 80) -> tuple[list[dict], str]:
+    if not GROCY_URL or not GROCY_API_KEY:
+        return [], ""
+    url = f"{GROCY_URL}/api/objects/stock_log"
+    headers = {"GROCY-API-KEY": GROCY_API_KEY, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        rows = response.json()
+    except Exception as exc:
+        logger.warning("No se pudo consultar el diario de stock de Grocy: %s", exc)
+        return [], str(exc)
+    if not isinstance(rows, list):
+        return [], "Respuesta de Grocy no válida"
+
+    valid_products = {int(pid): size for size, pid in DIAPER_PRODUCT_IDS.items()}
+    items = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            product_id = int(row.get("product_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if product_id not in valid_products:
+            continue
+        transaction_type = str(row.get("transaction_type") or "").strip().lower()
+        try:
+            amount = float(row.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if transaction_type != "purchase" or amount <= 0:
+            continue
+        booking_id = row.get("id")
+        timestamp = row.get("row_created_timestamp") or row.get("purchased_date") or row.get("created_timestamp") or row.get("timestamp")
+        if booking_id in (None, ""):
+            continue
+        items.append({
+            "key": f"grocy:{booking_id}",
+            "booking_id": int(booking_id),
+            "timestamp": timestamp,
+            "product_id": product_id,
+            "size": valid_products[product_id],
+            "amount": amount,
+            "source": "grocy",
+            "source_label": "Grocy",
+            "user": "Grocy",
+        })
+    items.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+    return items[:max(1, min(int(limit), 200))], ""
+
+
+def _apply_purchase_overrides(items: list[dict]) -> list[dict]:
+    overrides = _purchase_overrides()
+    result = []
+    for item in items:
+        override = overrides.get(str(item.get("key")))
+        if override:
+            if override.get("hidden"):
+                continue
+            if override.get("product_id") is not None:
+                item = dict(item)
+                item["product_id"] = int(override["product_id"])
+                item["size"] = override.get("size") or _size_for_product(item["product_id"]) or item.get("size")
+                item["amount"] = int(override.get("amount") or 0)
+                item["corrected"] = True
+        result.append(item)
+    return result
+
+
+async def _diaper_purchase_history(limit: int = 40) -> dict:
+    grocy_items, error = await _grocy_diaper_purchase_history(limit)
+    direct = bool(GROCY_URL and GROCY_API_KEY)
+    items = grocy_items if direct and not error else _local_diaper_purchase_history(limit)
+    items = _apply_purchase_overrides(items)
+    return {
+        "items": items,
+        "source": "grocy" if direct and not error else "app",
+        "source_label": "Diario de Grocy" if direct and not error else "Compras registradas desde esta app",
+        "grocy_direct": direct and not error,
+        "grocy_configured": direct,
+        "error": error,
+    }
+
+
+async def _undo_grocy_booking(booking_id: int) -> None:
+    if not GROCY_URL or not GROCY_API_KEY:
+        raise HTTPException(409, "La conexión directa con Grocy no está configurada")
+    url = f"{GROCY_URL}/api/stock/bookings/{int(booking_id)}/undo"
+    headers = {"GROCY-API-KEY": GROCY_API_KEY, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.post(url, headers=headers)
+    except Exception as exc:
+        raise HTTPException(502, f"No se pudo conectar con Grocy: {exc}")
+    if response.status_code not in (200, 201, 204):
+        raise HTTPException(response.status_code if response.status_code < 500 else 502, f"Grocy no pudo deshacer la compra: {response.text}")
+
+
+async def _apply_stock_delta(product_id: int, delta: int) -> None:
+    if delta == 0:
+        return
+    size = _size_for_product(product_id)
+    if not size:
+        raise HTTPException(404, "Ese producto no está configurado como talla de pañal")
+    current_payload = await _all_diaper_stocks()
+    current_item = next((item for item in current_payload.get("items", []) if int(item.get("product_id") or 0) == int(product_id)), None)
+    current_stock = _number_or_none((current_item or {}).get("stock"))
+    if current_stock is not None and current_stock + delta < 0:
+        raise HTTPException(400, f"No hay suficientes pañales de {size} para realizar esa corrección")
+    service = GROCY_RESTORE_SERVICE if delta > 0 else GROCY_CONSUME_SERVICE
+    if not service:
+        raise HTTPException(409, "No está configurada la acción necesaria de Grocy")
+    response = await _call_ha_service_response(service, {"product_id": int(product_id), "amount": abs(int(delta))})
+    status = _grocy_response_status(response)
+    if status is not None and status not in (200, 201, 204):
+        raise HTTPException(502, f"Grocy devolvió HTTP {status}: {response.get('content', '')}")
 
 
 def _grocy_response_status(payload: dict) -> int | None:
@@ -2401,6 +2623,9 @@ async def adjust_diaper_stock(product_id: int, request: Request):
     if status is not None and status not in (200, 201, 204):
         raise HTTPException(502, f"Grocy devolvió HTTP {status}: {response.get('content', '')}")
 
+    if str(payload.get("kind") or "").strip().lower() == "purchase" and delta > 0:
+        _save_diaper_purchase_event(request, product_id, delta)
+
     if GROCY_STOCK_ENTITY:
         try:
             await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
@@ -2431,6 +2656,102 @@ async def adjust_diaper_stock(product_id: int, request: Request):
         child_id=None,
     )
     return updated
+
+
+
+@app.get("/api/diaper-purchases")
+async def get_diaper_purchases(limit: int = 40):
+    return await _diaper_purchase_history(limit)
+
+
+@app.post("/api/diaper-purchases/correct")
+async def correct_diaper_purchase(request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "JSON no válido")
+    purchase_key = str(payload.get("key") or "").strip()
+    if not purchase_key:
+        raise HTTPException(400, "Falta la compra a corregir")
+    history = await _diaper_purchase_history(200)
+    current = next((item for item in history.get("items", []) if str(item.get("key")) == purchase_key), None)
+    if not current:
+        raise HTTPException(404, "No se encontró esa compra en el historial")
+    try:
+        new_product_id = int(payload.get("product_id"))
+        new_amount = int(payload.get("amount"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Talla o cantidad no válidas")
+    if new_amount <= 0:
+        raise HTTPException(400, "La compra debe tener al menos 1 pañal")
+    new_size = _size_for_product(new_product_id)
+    if not new_size:
+        raise HTTPException(404, "La talla seleccionada no está configurada")
+    old_product_id = int(current.get("product_id"))
+    old_amount = int(round(float(current.get("amount") or 0)))
+
+    if current.get("source") == "grocy" and current.get("booking_id"):
+        await _undo_grocy_booking(int(current["booking_id"]))
+        try:
+            await _apply_stock_delta(new_product_id, new_amount)
+        except Exception:
+            # Si falla el alta corregida, intentamos restaurar la compra original.
+            try:
+                await _apply_stock_delta(old_product_id, old_amount)
+            except Exception:
+                logger.exception("No se pudo restaurar la compra original tras fallar la corrección")
+            raise
+        # El booking original seguirá en el diario histórico de Grocy aunque esté deshecho;
+        # lo ocultamos en nuestra vista y la nueva compra aparecerá como booking nuevo.
+        _set_purchase_override(purchase_key, hidden=True, product_id=old_product_id, size=current.get("size"), amount=old_amount)
+    else:
+        if old_product_id == new_product_id:
+            await _apply_stock_delta(old_product_id, new_amount - old_amount)
+        else:
+            await _apply_stock_delta(old_product_id, -old_amount)
+            try:
+                await _apply_stock_delta(new_product_id, new_amount)
+            except Exception:
+                try:
+                    await _apply_stock_delta(old_product_id, old_amount)
+                except Exception:
+                    logger.exception("No se pudo revertir una corrección de compra de pañales")
+                raise
+        _set_purchase_override(purchase_key, hidden=False, product_id=new_product_id, size=new_size, amount=new_amount)
+    _record_audit(request, "update", "diaper_purchase", purchase_key, before=current, after={**current, "product_id": new_product_id, "size": new_size, "amount": new_amount})
+    if GROCY_STOCK_ENTITY:
+        try:
+            await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
+        except HTTPException:
+            pass
+    return await _diaper_purchase_history(40)
+
+
+@app.post("/api/diaper-purchases/delete")
+async def delete_diaper_purchase(request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "JSON no válido")
+    purchase_key = str(payload.get("key") or "").strip()
+    history = await _diaper_purchase_history(200)
+    current = next((item for item in history.get("items", []) if str(item.get("key")) == purchase_key), None)
+    if not current:
+        raise HTTPException(404, "No se encontró esa compra en el historial")
+    product_id = int(current.get("product_id"))
+    amount = int(round(float(current.get("amount") or 0)))
+    if current.get("source") == "grocy" and current.get("booking_id"):
+        await _undo_grocy_booking(int(current["booking_id"]))
+    else:
+        await _apply_stock_delta(product_id, -amount)
+    _set_purchase_override(purchase_key, hidden=True, product_id=product_id, size=current.get("size"), amount=amount)
+    _record_audit(request, "delete", "diaper_purchase", purchase_key, before=current, after=None)
+    if GROCY_STOCK_ENTITY:
+        try:
+            await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
+        except HTTPException:
+            pass
+    return await _diaper_purchase_history(40)
 
 
 @app.get("/api/room-status")

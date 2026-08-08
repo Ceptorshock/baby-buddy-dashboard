@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.11-es18.11"
+version: "2.0.12-es18.12"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con inventario rápido de pañales en Grocy, actividad actual de un vistazo, avisos globales, evolución de temperatura, pautas de medicación, calendario y Telegram."
+description: "Panel en castellano para Baby Buddy con historial editable de compras de pañales, inventario Grocy, actividad actual, avisos globales, temperatura, medicación y calendario."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
@@ -60,6 +60,8 @@ options:
   grocy_consume_service: rest_command.grocy_consumir_panal
   grocy_restore_service: rest_command.grocy_reponer_panal
   grocy_stock_entity: sensor.grocy_stock_por_ubicacion
+  grocy_url: ""
+  grocy_api_key: ""
   diaper_size_entities:
     - child_id: 1
       entity_id: input_select.bollito_talla_panal
@@ -126,6 +128,8 @@ schema:
   grocy_consume_service: str
   grocy_restore_service: str
   grocy_stock_entity: str
+  grocy_url: str
+  grocy_api_key: password
   diaper_size_entities:
     - child_id: int
       entity_id: str
