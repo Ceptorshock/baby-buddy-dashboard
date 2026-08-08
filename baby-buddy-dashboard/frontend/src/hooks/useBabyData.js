@@ -102,7 +102,7 @@ export function useBabyData() {
         api.getChanges({ child: c, limit: 20, ordering: "-time" }),
         api.getTummyTimes({ child: c, start_min: todayMin, start_max: todayMax, limit: 100, ordering: "-start" }),
         api.getTummyTimes({ child: c, start_min: weekMin, limit: 200, ordering: "-start" }),
-        api.getTemperature({ child: c, limit: 10, ordering: "-time" }),
+        api.getTemperature({ child: c, limit: 200, ordering: "-time" }),
         api.getWeight({ child: c, limit: 20, ordering: "-date" }),
         api.getHeight({ child: c, limit: 20, ordering: "-date" }),
         api.getTimers(),
