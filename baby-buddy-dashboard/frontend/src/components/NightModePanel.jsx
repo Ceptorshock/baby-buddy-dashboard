@@ -2,17 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { Icons } from "./Icons";
 import { api } from "../api";
 import { formatElapsed } from "../utils/formatters";
+import {
+  describeRegimen,
+  effectiveMedicationEntry,
+  intervalMilliseconds,
+  nextDailySlot,
+  normalizeScheduleType,
+  regimenKey,
+} from "../utils/medicationRegimens";
 
 function timerKind(name) {
   const value = String(name || "").toLowerCase();
   if (value.includes("sleep") || value.includes("sueño")) return "sleep";
   if (value.includes("tummy") || value.includes("boca")) return "tummy";
   return "feeding";
-}
-
-function intervalMilliseconds(value) {
-  const parts = String(value || "").split(":").map(Number);
-  return ((parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0)) * 1000;
 }
 
 function localTimestamp(date) {
@@ -29,30 +32,59 @@ function doseText(entry) {
   return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
 }
 
-function regimenKey(name) {
-  return String(name || "").trim().toLocaleLowerCase("es-ES");
-}
-
-function getActiveRegimens(medications, regimenMap) {
+function getActiveRegimens(medications, regimenMap, now, advanceMinutes) {
   const latest = new Map();
   for (const entry of medications || []) {
     const key = regimenKey(entry?.name);
     if (!key || latest.has(key)) continue;
     latest.set(key, entry);
   }
-  return [...latest.values()].map((rawEntry) => {
-    const template = regimenMap.get(regimenKey(rawEntry.name));
-    const entry = template ? {
-      ...rawEntry,
-      dosage: template.dosage !== null && template.dosage !== undefined && template.dosage !== "" ? template.dosage : rawEntry.dosage,
-      dosage_unit: template.dosage_unit || rawEntry.dosage_unit,
-      next_dose_interval: template.next_dose_interval || rawEntry.next_dose_interval,
-    } : rawEntry;
-    const ms = intervalMilliseconds(entry.next_dose_interval);
-    const previous = new Date(rawEntry.time);
-    const nextAt = ms > 0 && !Number.isNaN(previous.getTime()) ? new Date(previous.getTime() + ms) : null;
-    return { entry, rawEntry, nextAt };
-  }).filter((item) => item.nextAt).sort((a, b) => a.nextAt - b.nextAt);
+
+  const sourceRegimens = new Map(regimenMap);
+  for (const [key, rawEntry] of latest.entries()) {
+    if (!sourceRegimens.has(key) && rawEntry?.next_dose_interval) {
+      sourceRegimens.set(key, {
+        child_id: rawEntry.child,
+        name: rawEntry.name,
+        dosage: rawEntry.dosage,
+        dosage_unit: rawEntry.dosage_unit || "",
+        schedule_type: "interval",
+        next_dose_interval: rawEntry.next_dose_interval,
+        slots: [],
+        active: true,
+      });
+    }
+  }
+
+  const result = [];
+  for (const [key, regimen] of sourceRegimens.entries()) {
+    if (!regimen?.active) continue;
+    const rawEntry = latest.get(key);
+    if (!rawEntry) continue;
+    const entry = effectiveMedicationEntry(rawEntry, regimen);
+    const scheduleType = normalizeScheduleType(regimen, rawEntry);
+    let nextAt = null;
+    let slot = null;
+
+    if (scheduleType === "interval") {
+      const ms = intervalMilliseconds(regimen.next_dose_interval || rawEntry.next_dose_interval);
+      const previous = new Date(rawEntry.time);
+      if (ms > 0 && !Number.isNaN(previous.getTime())) nextAt = new Date(previous.getTime() + ms);
+    } else if (scheduleType === "daily_slots") {
+      const next = nextDailySlot(regimen, rawEntry.time, now, advanceMinutes);
+      nextAt = next?.nextAt || null;
+      slot = next?.slot || null;
+    }
+
+    if (scheduleType === "prn" || nextAt) result.push({ entry, rawEntry, regimen, scheduleType, nextAt, slot });
+  }
+
+  return result.sort((a, b) => {
+    if (!a.nextAt && !b.nextAt) return a.entry.name.localeCompare(b.entry.name, "es");
+    if (!a.nextAt) return 1;
+    if (!b.nextAt) return -1;
+    return a.nextAt - b.nextAt;
+  });
 }
 
 export default function NightModePanel({ data, timer, onOpenForm, onCreated, onDisable }) {
@@ -86,7 +118,10 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     return () => { cancelled = true; };
   }, [data.child?.id, data.medications]);
 
-  const regimens = useMemo(() => getActiveRegimens(data.medications, regimenMap), [data.medications, regimenMap]);
+  const regimens = useMemo(
+    () => getActiveRegimens(data.medications, regimenMap, now, advanceMinutes),
+    [data.medications, regimenMap, now, advanceMinutes],
+  );
   const vibrate = () => { try { navigator.vibrate?.(35); } catch {} };
   const activeByType = (type) => timer.activeTimers.find((item) => timerKind(item.name) === type);
 
@@ -131,8 +166,8 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     }
   };
 
-  const quickMedication = async ({ entry, nextAt }) => {
-    if (!entry || !nextAt || !data.child?.id) return;
+  const quickMedication = async ({ entry, regimen, scheduleType, nextAt }) => {
+    if (!entry || !data.child?.id) return;
     setSavingMedication(entry.id);
     vibrate();
     try {
@@ -141,15 +176,22 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
         child: data.child.id,
         name: entry.name,
         time: localTimestamp(administeredNow),
-        next_dose_interval: entry.next_dose_interval,
       };
+      if (scheduleType === "interval" && regimen.next_dose_interval) payload.next_dose_interval = regimen.next_dose_interval;
       if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") payload.dosage = entry.dosage;
       if (entry.dosage_unit) payload.dosage_unit = entry.dosage_unit;
       if (entry.notes) payload.notes = entry.notes;
       const created = await api.createMedication(payload);
       await api.setMedicationRegimen(data.child.id, {
-        name: entry.name, dosage: entry.dosage ?? null, dosage_unit: entry.dosage_unit || "",
-        next_dose_interval: entry.next_dose_interval || "", active: true,
+        ...regimen,
+        name: entry.name,
+        dosage: entry.dosage ?? null,
+        dosage_unit: entry.dosage_unit || "",
+        schedule_type: scheduleType,
+        next_dose_interval: scheduleType === "interval" ? (regimen.next_dose_interval || "") : "",
+        slots: scheduleType === "daily_slots" ? (regimen.slots || []) : [],
+        last_scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : (regimen.last_scheduled_for || null),
+        active: true,
       }).catch(() => null);
       onCreated({ type: "medication", id: created.id, label: entry.name, childId: data.child.id });
       setMessage(`${entry.name} registrado ahora · ${clock(administeredNow)}`);
@@ -161,13 +203,13 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
     }
   };
 
-  const endRegimen = async (entry) => {
+  const endRegimen = async (entry, regimen) => {
     if (!window.confirm(`¿Finalizar la pauta de ${entry.name}?`)) return;
     setSavingMedication(entry.id);
     try {
       await Promise.all([
-        api.updateMedication(entry.id, { next_dose_interval: null }),
-        api.deleteMedicationRegimen(data.child.id, entry.name).catch(() => null),
+        entry.next_dose_interval ? api.updateMedication(entry.id, { next_dose_interval: null }) : Promise.resolve(),
+        api.deleteMedicationRegimen(data.child.id, regimen?.name || entry.name).catch(() => null),
       ]);
       setMessage(`Pauta de ${entry.name} finalizada`);
       await data.refetch();
@@ -225,23 +267,27 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
       {regimens.length > 0 && (
         <div className="night-medication-regimens">
           <div className="night-medication-title">Pautas activas</div>
-          {regimens.map(({ entry, rawEntry, nextAt }) => {
-            const deltaMinutes = (nextAt.getTime() - now.getTime()) / 60000;
-            const due = deltaMinutes <= 0;
-            const soon = !due && deltaMinutes <= advanceMinutes;
+          {regimens.map(({ entry, rawEntry, regimen, scheduleType, nextAt, slot }) => {
+            const deltaMinutes = nextAt ? (nextAt.getTime() - now.getTime()) / 60000 : null;
+            const due = deltaMinutes !== null && deltaMinutes <= 0;
+            const soon = deltaMinutes !== null && !due && deltaMinutes <= advanceMinutes;
+            const scheduleLabel = scheduleType === "prn"
+              ? "Según necesidad · sin avisos"
+              : `${slot?.label ? `${slot.label} · ` : ""}${due ? "Pendiente" : soon ? `Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` : "Próxima"} · ${clock(nextAt)}`;
             return (
               <div className={`night-medication-row${due ? " is-due" : soon ? " is-soon" : ""}`} key={`night-med-${rawEntry.id}`}>
                 <div className="night-medication-info">
                   <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
-                  <span>{due ? "Pendiente" : soon ? `Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` : "Próxima"} · {clock(nextAt)}</span>
+                  <span>{scheduleLabel}</span>
+                  <small>{describeRegimen(regimen)}</small>
                 </div>
                 <div className="night-medication-actions">
-                  <button className={due ? "is-due" : soon ? "is-soon" : "is-early"} disabled={savingMedication === rawEntry.id} onClick={() => quickMedication({ entry: { ...entry, id: rawEntry.id }, nextAt })}>
+                  <button className={due ? "is-due" : soon ? "is-soon" : "is-early"} disabled={savingMedication === rawEntry.id} onClick={() => quickMedication({ entry: { ...entry, id: rawEntry.id }, regimen, scheduleType, nextAt })}>
                     {savingMedication === rawEntry.id ? "…" : `Dar ahora · ${clock(now)}`}
                   </button>
-                  <button title="Dar con cambios" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, time: new Date().toISOString() } })}><Icons.Pencil /></button>
-                  <button title="Editar dosis futura e intervalo" onClick={() => onOpenForm({ type: "medication", entry: rawEntry, prefill: entry, regimenOnly: true })}><Icons.Settings /></button>
-                  <button title="Finalizar pauta" onClick={() => endRegimen(rawEntry)}><Icons.X /></button>
+                  <button title="Dar con cambios" onClick={() => onOpenForm({ type: "medication", prefill: { ...entry, ...regimen, time: new Date().toISOString(), _scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : null } })}><Icons.Pencil /></button>
+                  <button title="Editar dosis y pauta futura" onClick={() => onOpenForm({ type: "medication", entry: rawEntry, prefill: { ...entry, ...regimen }, regimenOnly: true })}><Icons.Settings /></button>
+                  <button title="Finalizar pauta" onClick={() => endRegimen(rawEntry, regimen)}><Icons.X /></button>
                 </div>
               </div>
             );

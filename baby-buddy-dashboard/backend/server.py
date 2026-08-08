@@ -550,6 +550,46 @@ def _medication_regimen_key(child_id: int, name: str) -> str:
     return f"{int(child_id)}::{str(name or '').strip().casefold()}"
 
 
+def _normalize_medication_schedule_type(value, interval: str = "", slots=None) -> str:
+    schedule_type = str(value or "").strip().lower()
+    if schedule_type in {"interval", "daily_slots", "prn"}:
+        return schedule_type
+    if interval:
+        return "interval"
+    if isinstance(slots, list) and any(isinstance(slot, dict) and slot.get("enabled", True) and slot.get("time") for slot in slots):
+        return "daily_slots"
+    return "prn"
+
+
+def _normalize_medication_slots(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or f"slot_{index + 1}").strip()
+        label = str(item.get("label") or key).strip()
+        raw_time = str(item.get("time") or "").strip()
+        if not key or key in seen or not re.fullmatch(r"\d{2}:\d{2}", raw_time):
+            continue
+        try:
+            hours, minutes = (int(part) for part in raw_time.split(":", 1))
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+            continue
+        seen.add(key)
+        result.append({
+            "key": key,
+            "label": label or key,
+            "time": f"{hours:02d}:{minutes:02d}",
+            "enabled": bool(item.get("enabled", True)),
+        })
+    return result
+
+
 def _initial_medication_regimens() -> dict[str, dict]:
     if not APP_SETTINGS_PATH.exists():
         return {}
@@ -570,12 +610,17 @@ def _initial_medication_regimens() -> dict[str, dict]:
             if child_id <= 0 or not name:
                 continue
             normalized = _medication_regimen_key(child_id, name)
+            interval = str(value.get("next_dose_interval") or "").strip()
+            slots = _normalize_medication_slots(value.get("slots"))
             result[normalized] = {
                 "child_id": child_id,
                 "name": name,
                 "dosage": value.get("dosage"),
                 "dosage_unit": str(value.get("dosage_unit") or "").strip(),
-                "next_dose_interval": str(value.get("next_dose_interval") or "").strip(),
+                "schedule_type": _normalize_medication_schedule_type(value.get("schedule_type"), interval, slots),
+                "next_dose_interval": interval,
+                "slots": slots,
+                "last_scheduled_for": value.get("last_scheduled_for"),
                 "active": bool(value.get("active", True)),
                 "updated_at": value.get("updated_at"),
             }
@@ -612,6 +657,9 @@ def _effective_medication(child_id: int, medication: dict) -> dict:
             effective["dosage_unit"] = regimen.get("dosage_unit")
         if regimen.get("next_dose_interval"):
             effective["next_dose_interval"] = regimen.get("next_dose_interval")
+        effective["schedule_type"] = regimen.get("schedule_type")
+        effective["slots"] = regimen.get("slots") or []
+        effective["last_scheduled_for"] = regimen.get("last_scheduled_for")
     return effective
 
 NIGHT_MODE_CONFIG = {
@@ -958,6 +1006,45 @@ def _parse_datetime(value) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _next_daily_medication_slot(regimen: dict, administered: datetime | None, now: datetime, early_grace_minutes: int = 20):
+    slots = [slot for slot in _normalize_medication_slots(regimen.get("slots")) if slot.get("enabled", True)]
+    if not slots:
+        return None
+    slots.sort(key=lambda item: item.get("time", ""))
+
+    local_tz = administered.tzinfo if administered and administered.tzinfo else datetime.now().astimezone().tzinfo
+    now_local = now.astimezone(local_tz)
+    if administered:
+        reference = administered.astimezone(local_tz) + timedelta(minutes=max(0, int(early_grace_minutes or 0)))
+    else:
+        reference = now_local - timedelta(days=1)
+
+    marker = _parse_datetime(regimen.get("last_scheduled_for"))
+    if marker:
+        marker = marker.astimezone(local_tz)
+        if marker > reference:
+            reference = marker
+
+    candidates: list[tuple[datetime, dict]] = []
+    base = reference - timedelta(days=1)
+    for day_offset in range(4):
+        day = base + timedelta(days=day_offset)
+        for slot in slots:
+            try:
+                hours, minutes = (int(part) for part in slot["time"].split(":", 1))
+            except (KeyError, TypeError, ValueError):
+                continue
+            candidate = day.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+            if candidate > reference:
+                candidates.append((candidate, slot))
+    candidates.sort(key=lambda item: item[0])
+    if not candidates:
+        return None
+
+    due = [item for item in candidates if item[0] <= now_local]
+    return due[-1] if due else candidates[0]
 
 
 def _calendar_start(event: dict) -> tuple[str | None, bool]:
@@ -1457,10 +1544,23 @@ async def _notify_created_entry(resource: str, payload: dict, result: dict):
         if dosage not in (None, ""):
             dose_text = f"{dosage} {unit}".strip()
         interval = str(combined.get("next_dose_interval") or "").strip()
+        regimen = _medication_regimen_for(child_id, name) if child_id else None
+        schedule_type = _normalize_medication_schedule_type(
+            regimen.get("schedule_type") if regimen else None,
+            interval,
+            regimen.get("slots") if regimen else None,
+        )
+        if schedule_type == "daily_slots":
+            enabled_labels = [slot.get("label") for slot in _normalize_medication_slots(regimen.get("slots")) if slot.get("enabled", True)]
+            schedule_text = "Horarios: " + " · ".join(str(label) for label in enabled_labels if label)
+        elif schedule_type == "prn":
+            schedule_text = "Según necesidad · sin avisos"
+        else:
+            schedule_text = f"Próxima pauta: {interval}" if interval else ""
         message = _message_parts([
             f"💊 Se ha administrado {name} a {child_name}",
             dose_text,
-            f"Próxima pauta: {interval}" if interval else "",
+            schedule_text,
             _clock_text(combined.get("time")),
         ])
 
@@ -1596,14 +1696,49 @@ async def _collect_alerts() -> list[dict]:
                     continue
                 latest_by_name[name_key] = medication
             for medication in latest_by_name.values():
+                raw_medication = medication
                 medication = _effective_medication(child_id, medication)
-                interval_seconds = _interval_seconds(medication.get("next_dose_interval"))
-                administered = _parse_datetime(medication.get("time"))
-                if interval_seconds <= 0 or not administered:
+                regimen = _medication_regimen_for(child_id, medication.get("name", ""))
+                if not regimen:
+                    legacy_interval = str(raw_medication.get("next_dose_interval") or "").strip()
+                    if legacy_interval:
+                        regimen = {
+                            "child_id": child_id,
+                            "name": medication.get("name"),
+                            "dosage": medication.get("dosage"),
+                            "dosage_unit": medication.get("dosage_unit") or "",
+                            "schedule_type": "interval",
+                            "next_dose_interval": legacy_interval,
+                            "slots": [],
+                            "active": True,
+                        }
+                    else:
+                        continue
+                schedule_type = _normalize_medication_schedule_type(
+                    regimen.get("schedule_type"),
+                    str(regimen.get("next_dose_interval") or medication.get("next_dose_interval") or "").strip(),
+                    regimen.get("slots"),
+                )
+                if schedule_type == "prn":
                     continue
-                next_at = administered + timedelta(seconds=interval_seconds)
-                next_utc = next_at.astimezone(timezone.utc)
+
+                administered = _parse_datetime(raw_medication.get("time"))
+                if not administered:
+                    continue
                 advance = max(0, int(MEDICATION_ALERT_SETTINGS.get("minutes_before", 20) or 0))
+                slot = None
+                if schedule_type == "daily_slots":
+                    next_slot = _next_daily_medication_slot(regimen, administered, now, advance)
+                    if not next_slot:
+                        continue
+                    next_at, slot = next_slot
+                else:
+                    interval_seconds = _interval_seconds(regimen.get("next_dose_interval") or medication.get("next_dose_interval"))
+                    if interval_seconds <= 0:
+                        continue
+                    next_at = administered + timedelta(seconds=interval_seconds)
+
+                next_utc = next_at.astimezone(timezone.utc)
                 alert_at = next_at - timedelta(minutes=advance)
                 if now < alert_at.astimezone(timezone.utc):
                     continue
@@ -1617,14 +1752,16 @@ async def _collect_alerts() -> list[dict]:
                 if dosage not in (None, ""):
                     dose_text = f" · {dosage} {unit}".rstrip()
                 due_text = next_at.strftime("%H:%M")
+                slot_text = f"{slot.get('label')} · " if isinstance(slot, dict) and slot.get("label") else ""
                 if due:
                     title = f"Medicamento pendiente · {child_name}"
-                    timing_text = f"tocaba a las {due_text}"
+                    timing_text = f"{slot_text}tocaba a las {due_text}"
                 else:
                     title = f"Medicamento próximo · {child_name}"
-                    timing_text = f"está previsto a las {due_text} (aviso {advance} min antes)"
+                    timing_text = f"{slot_text}está previsto a las {due_text} (aviso {advance} min antes)"
+                scheduled_token = next_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M")
                 alerts.append({
-                    "key": f"medication_due:{child_id}:{medication.get('id', med_name.casefold())}",
+                    "key": f"medication_due:{child_id}:{med_name.casefold()}:{scheduled_token}",
                     "type": "medication",
                     "title": title,
                     "message": f"{med_name}{dose_text} {timing_text}. Puedes registrarlo antes o después desde la pauta activa.",
@@ -1840,8 +1977,20 @@ async def set_medication_regimen(child_id: int, request: Request):
         dosage = None
     unit = str(payload.get("dosage_unit") or "").strip()
     interval = str(payload.get("next_dose_interval") or "").strip()
-    if interval and _interval_seconds(interval) <= 0:
-        raise HTTPException(400, "El intervalo de la pauta no es válido")
+    slots = _normalize_medication_slots(payload.get("slots"))
+    schedule_type = _normalize_medication_schedule_type(payload.get("schedule_type"), interval, slots)
+    if schedule_type == "interval":
+        if not interval or _interval_seconds(interval) <= 0:
+            raise HTTPException(400, "El intervalo de la pauta no es válido")
+    else:
+        interval = ""
+    if schedule_type == "daily_slots" and not any(slot.get("enabled", True) for slot in slots):
+        raise HTTPException(400, "Activa al menos un horario del día")
+    if schedule_type != "daily_slots":
+        slots = []
+    last_scheduled_for = payload.get("last_scheduled_for")
+    if last_scheduled_for not in (None, "") and not _parse_datetime(last_scheduled_for):
+        raise HTTPException(400, "La última franja programada no es válida")
     key = _medication_regimen_key(child_id, name)
     before = MEDICATION_REGIMENS.get(key)
     regimen = {
@@ -1849,7 +1998,10 @@ async def set_medication_regimen(child_id: int, request: Request):
         "name": name,
         "dosage": dosage,
         "dosage_unit": unit,
+        "schedule_type": schedule_type,
         "next_dose_interval": interval,
+        "slots": slots,
+        "last_scheduled_for": last_scheduled_for or None,
         "active": bool(payload.get("active", True)),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

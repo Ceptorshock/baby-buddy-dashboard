@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import Modal, { FormField, FormInput, FormSelect, FormButton } from "../Modal";
 import { colors } from "../../utils/colors";
+import { DAILY_SLOT_PRESETS, normalizeDailySlots, normalizeScheduleType } from "../../utils/medicationRegimens";
 
 function toLocalDatetime(date) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -20,18 +21,26 @@ const UNITS = [
   { value: "tablets", label: "comprimidos" },
 ];
 
+const SCHEDULE_TYPES = [
+  { value: "interval", label: "Cada X tiempo" },
+  { value: "daily_slots", label: "Horarios del día" },
+  { value: "prn", label: "Según necesidad (sin avisos)" },
+  { value: "none", label: "Dosis única / sin pauta" },
+];
+
 export default function MedicationForm({ childId, entry, prefill, regimenOnly = false, onDone, onClose }) {
-  const isEdit = !!entry;
-  // En edición de pauta, prefill contiene la plantilla efectiva (incluidos cambios
-  // de dosis futuros que no deben reescribir una administración ya registrada).
+  const isEdit = !!entry && !regimenOnly;
   const source = regimenOnly ? (prefill || entry || {}) : (entry || prefill || {});
   const initialInterval = parseInterval(source?.next_dose_interval);
+  const inferredType = normalizeScheduleType(source, source);
   const [name, setName] = useState(source?.name || "");
   const [dosage, setDosage] = useState(source?.dosage ?? "");
   const [dosageUnit, setDosageUnit] = useState(source?.dosage_unit || "ml");
   const [time, setTime] = useState(source?.time ? toLocalDatetime(new Date(source.time)) : toLocalDatetime(new Date()));
+  const [scheduleType, setScheduleType] = useState(regimenOnly ? (inferredType === "none" ? "interval" : inferredType) : inferredType);
   const [intervalHours, setIntervalHours] = useState(initialInterval.hours || "");
   const [intervalMinutes, setIntervalMinutes] = useState(initialInterval.minutes || "");
+  const [slots, setSlots] = useState(() => normalizeDailySlots(source?.slots || DAILY_SLOT_PRESETS));
   const [notes, setNotes] = useState(source?.notes || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -44,28 +53,49 @@ export default function MedicationForm({ childId, entry, prefill, regimenOnly = 
       : "";
   };
 
+  const updateSlot = (key, patch) => {
+    setSlots((current) => current.map((slot) => slot.key === key ? { ...slot, ...patch } : slot));
+  };
+
+  const regimenPayload = () => {
+    const interval = scheduleType === "interval" ? intervalValue() : "";
+    return {
+      name: name.trim(),
+      dosage: dosage === "" ? null : Number(dosage),
+      dosage_unit: dosage === "" ? "" : dosageUnit,
+      schedule_type: scheduleType,
+      next_dose_interval: interval,
+      slots: scheduleType === "daily_slots" ? slots : [],
+      active: scheduleType !== "none",
+      last_scheduled_for: source?._scheduled_for || source?.last_scheduled_for || null,
+    };
+  };
+
+  const validateSchedule = () => {
+    if (scheduleType === "interval" && !intervalValue()) return "Indica el intervalo de la pauta.";
+    if (scheduleType === "daily_slots" && !slots.some((slot) => slot.enabled)) return "Activa al menos un horario del día.";
+    return "";
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!name.trim()) return;
+    const scheduleError = regimenOnly || scheduleType !== "none" ? validateSchedule() : "";
+    if (scheduleError) {
+      setError(scheduleError);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const interval = intervalValue();
+      const regimen = regimenPayload();
 
       if (regimenOnly) {
-        // Guardamos la DOSIS FUTURA en la configuración de la pauta. No tocamos
-        // la dosis de la última administración histórica en Baby Buddy.
-        await api.setMedicationRegimen(childId, {
-          name: name.trim(),
-          dosage: dosage === "" ? null : Number(dosage),
-          dosage_unit: dosage === "" ? "" : dosageUnit,
-          next_dose_interval: interval,
-          active: Boolean(interval),
-        });
-        // next_dose_interval sí es metadata de la pauta de la última dosis y es
-        // lo único que actualizamos en Baby Buddy para mantener compatibilidad.
+        await api.setMedicationRegimen(childId, regimen);
         if (entry?.id) {
-          await api.updateMedication(entry.id, { next_dose_interval: interval || null });
+          await api.updateMedication(entry.id, {
+            next_dose_interval: scheduleType === "interval" ? (regimen.next_dose_interval || null) : null,
+          });
         }
         onDone();
         return;
@@ -78,8 +108,8 @@ export default function MedicationForm({ childId, entry, prefill, regimenOnly = 
       } else if (isEdit && entry?.dosage !== null && entry?.dosage !== undefined) {
         data.dosage = null;
       }
-      if (interval) {
-        data.next_dose_interval = interval;
+      if (scheduleType === "interval" && regimen.next_dose_interval) {
+        data.next_dose_interval = regimen.next_dose_interval;
       } else if (isEdit && entry?.next_dose_interval) {
         data.next_dose_interval = null;
       }
@@ -92,16 +122,8 @@ export default function MedicationForm({ childId, entry, prefill, regimenOnly = 
       } else {
         data.child = childId;
         const created = await api.createMedication(data);
-        // Una dosis nueva con intervalo define/actualiza la plantilla de futuras
-        // dosis; así el engranaje y los avisos comparten la misma pauta.
-        if (interval) {
-          await api.setMedicationRegimen(childId, {
-            name: name.trim(),
-            dosage: dosage === "" ? null : Number(dosage),
-            dosage_unit: dosage === "" ? "" : dosageUnit,
-            next_dose_interval: interval,
-            active: true,
-          }).catch(() => null);
+        if (scheduleType !== "none") {
+          await api.setMedicationRegimen(childId, regimen).catch(() => null);
         }
         onDone({ type: "medication", id: created.id, label: name.trim(), childId });
       }
@@ -111,18 +133,20 @@ export default function MedicationForm({ childId, entry, prefill, regimenOnly = 
     }
   };
 
+  const scheduleOptions = regimenOnly ? SCHEDULE_TYPES.filter((item) => item.value !== "none") : SCHEDULE_TYPES;
+
   return (
     <Modal title={regimenOnly ? `Editar pauta · ${name || "Medicamento"}` : isEdit ? "Editar medicamento" : prefill ? "Registrar dosis" : "Registrar medicamento"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        {!regimenOnly && <>
+        {!regimenOnly && (
           <FormField label="Medicamento">
             <FormInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Paracetamol" autoFocus required />
           </FormField>
-        </>}
+        )}
 
         {regimenOnly && (
           <div className="form-help" style={{ marginBottom: 12 }}>
-            Estos cambios se aplican a las próximas dosis. No modifican cuántos comprimidos/ml se registraron en dosis anteriores.
+            Estos cambios se aplican a las próximas dosis. No modifican las dosis ya registradas.
           </div>
         )}
 
@@ -141,13 +165,55 @@ export default function MedicationForm({ childId, entry, prefill, regimenOnly = 
           </FormField>
         )}
 
-        <FormField label="Intervalo hasta la próxima dosis (opcional)">
-          <div className="form-two-columns">
-            <FormInput type="number" min="0" max="168" value={intervalHours} onChange={(e) => setIntervalHours(e.target.value)} placeholder="Horas" />
-            <FormInput type="number" min="0" max="59" value={intervalMinutes} onChange={(e) => setIntervalMinutes(e.target.value)} placeholder="Minutos" />
-          </div>
-          <div className="form-help">Es un recordatorio de la pauta que introduzcáis; la app no determina la pauta médica.</div>
+        <FormField label="Tipo de pauta">
+          <FormSelect options={scheduleOptions} value={scheduleType} onChange={(e) => setScheduleType(e.target.value)} />
         </FormField>
+
+        {scheduleType === "interval" && (
+          <FormField label="Intervalo hasta la próxima dosis">
+            <div className="form-two-columns">
+              <FormInput type="number" min="0" max="168" value={intervalHours} onChange={(e) => setIntervalHours(e.target.value)} placeholder="Horas" />
+              <FormInput type="number" min="0" max="59" value={intervalMinutes} onChange={(e) => setIntervalMinutes(e.target.value)} placeholder="Minutos" />
+            </div>
+            <div className="form-help">La siguiente toma se calcula desde la hora real de administración.</div>
+          </FormField>
+        )}
+
+        {scheduleType === "daily_slots" && (
+          <FormField label="Momentos del día">
+            <div className="medication-slot-editor">
+              {slots.map((slot) => (
+                <div className={`medication-slot-row${slot.enabled ? " is-enabled" : ""}`} key={slot.key}>
+                  <label className="medication-slot-check">
+                    <input type="checkbox" checked={slot.enabled} onChange={(e) => updateSlot(slot.key, { enabled: e.target.checked })} />
+                    <span>{slot.label}</span>
+                  </label>
+                  <FormInput
+                    className="medication-slot-time"
+                    type="time"
+                    value={slot.time}
+                    disabled={!slot.enabled}
+                    style={{ padding: "8px 9px" }}
+                    onChange={(e) => updateSlot(slot.key, { time: e.target.value })}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="form-help">Activa solo las franjas prescritas. Las horas son editables.</div>
+          </FormField>
+        )}
+
+        {scheduleType === "prn" && (
+          <div className="form-help medication-prn-help">
+            Quedará como acceso rápido «Dar ahora», pero no se calculará una próxima hora ni se enviarán avisos automáticos.
+          </div>
+        )}
+
+        {scheduleType === "none" && (
+          <div className="form-help medication-prn-help">
+            Se registrará esta administración sin crear una pauta activa.
+          </div>
+        )}
 
         {!regimenOnly && (
           <FormField label="Notas">

@@ -5,20 +5,18 @@ import { Icons } from "./Icons";
 import { api } from "../api";
 import { colors } from "../utils/colors";
 import { formatTime, timeAgo } from "../utils/formatters";
-
-function intervalMilliseconds(value) {
-  const parts = String(value || "").split(":").map(Number);
-  if (!parts.length) return 0;
-  return ((parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0)) * 1000;
-}
+import {
+  describeRegimen,
+  effectiveMedicationEntry,
+  intervalMilliseconds,
+  nextDailySlot,
+  normalizeScheduleType,
+  regimenKey,
+} from "../utils/medicationRegimens";
 
 function localTimestamp(date) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
-}
-
-function regimenKey(name) {
-  return String(name || "").trim().toLocaleLowerCase("es-ES");
 }
 
 function doseText(entry) {
@@ -26,36 +24,59 @@ function doseText(entry) {
   return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
 }
 
-function effectiveEntry(entry, regimenMap) {
-  const regimen = regimenMap.get(regimenKey(entry?.name));
-  if (!regimen) return entry;
-  return {
-    ...entry,
-    dosage: regimen.dosage !== null && regimen.dosage !== undefined && regimen.dosage !== "" ? regimen.dosage : entry.dosage,
-    dosage_unit: regimen.dosage_unit || entry.dosage_unit,
-    next_dose_interval: regimen.next_dose_interval || entry.next_dose_interval,
-  };
-}
-
-function activeRegimens(medications, regimenMap) {
+function activeRegimens(medications, regimenMap, now, advanceMinutes) {
   const latestByName = new Map();
   for (const entry of medications || []) {
     const key = regimenKey(entry?.name);
     if (!key || latestByName.has(key)) continue;
     latestByName.set(key, entry);
   }
-  return [...latestByName.values()]
-    .map((rawEntry) => {
-      const entry = effectiveEntry(rawEntry, regimenMap);
-      const intervalMs = intervalMilliseconds(entry.next_dose_interval);
+
+  const sourceRegimens = new Map(regimenMap);
+  for (const [key, rawEntry] of latestByName.entries()) {
+    if (!sourceRegimens.has(key) && rawEntry?.next_dose_interval) {
+      sourceRegimens.set(key, {
+        child_id: rawEntry.child,
+        name: rawEntry.name,
+        dosage: rawEntry.dosage,
+        dosage_unit: rawEntry.dosage_unit || "",
+        schedule_type: "interval",
+        next_dose_interval: rawEntry.next_dose_interval,
+        slots: [],
+        active: true,
+      });
+    }
+  }
+
+  const items = [];
+  for (const [key, regimen] of sourceRegimens.entries()) {
+    if (!regimen?.active) continue;
+    const rawEntry = latestByName.get(key);
+    if (!rawEntry) continue;
+    const entry = effectiveMedicationEntry(rawEntry, regimen);
+    const scheduleType = normalizeScheduleType(regimen, rawEntry);
+    let nextAt = null;
+    let slot = null;
+
+    if (scheduleType === "interval") {
+      const intervalMs = intervalMilliseconds(regimen.next_dose_interval || rawEntry.next_dose_interval);
       const administeredAt = new Date(rawEntry.time);
-      const nextAt = intervalMs > 0 && !Number.isNaN(administeredAt.getTime())
-        ? new Date(administeredAt.getTime() + intervalMs)
-        : null;
-      return { entry, rawEntry, intervalMs, nextAt };
-    })
-    .filter((item) => item.nextAt)
-    .sort((a, b) => a.nextAt - b.nextAt);
+      if (intervalMs > 0 && !Number.isNaN(administeredAt.getTime())) nextAt = new Date(administeredAt.getTime() + intervalMs);
+    } else if (scheduleType === "daily_slots") {
+      const next = nextDailySlot(regimen, rawEntry.time, now, advanceMinutes);
+      nextAt = next?.nextAt || null;
+      slot = next?.slot || null;
+    }
+
+    if (scheduleType === "prn" || nextAt) items.push({ entry, rawEntry, regimen, scheduleType, nextAt, slot });
+  }
+
+  return items.sort((a, b) => {
+    if (!a.nextAt && !b.nextAt) return a.entry.name.localeCompare(b.entry.name, "es");
+    if (!a.nextAt) return 1;
+    if (!b.nextAt) return -1;
+    return a.nextAt - b.nextAt;
+  });
 }
 
 export default function MedicationCard({ medications = [], childId, onEditEntry, onAdd, onCreateScheduled, onChanged }) {
@@ -93,10 +114,13 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     return () => { cancelled = true; };
   }, [childId, medications]);
 
-  const regimens = useMemo(() => activeRegimens(medications, regimenMap), [medications, regimenMap]);
+  const regimens = useMemo(
+    () => activeRegimens(medications, regimenMap, clock, advanceMinutes),
+    [medications, regimenMap, clock, advanceMinutes],
+  );
 
-  const registerScheduledDose = async ({ entry, nextAt }) => {
-    if (!childId || !entry || !nextAt) return;
+  const registerScheduledDose = async ({ entry, regimen, scheduleType, nextAt }) => {
+    if (!childId || !entry) return;
     setBusyId(`dose:${entry.id}`);
     setMessage("");
     try {
@@ -105,20 +129,31 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
         child: childId,
         name: entry.name,
         time: localTimestamp(administeredNow),
-        next_dose_interval: entry.next_dose_interval,
       };
+      if (scheduleType === "interval" && regimen.next_dose_interval) data.next_dose_interval = regimen.next_dose_interval;
       if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") data.dosage = entry.dosage;
       if (entry.dosage_unit) data.dosage_unit = entry.dosage_unit;
       if (entry.notes) data.notes = entry.notes;
+
       const created = await api.createMedication(data);
       await api.setMedicationRegimen(childId, {
+        ...regimen,
         name: entry.name,
         dosage: entry.dosage ?? null,
         dosage_unit: entry.dosage_unit || "",
-        next_dose_interval: entry.next_dose_interval || "",
+        schedule_type: scheduleType,
+        next_dose_interval: scheduleType === "interval" ? (regimen.next_dose_interval || "") : "",
+        slots: scheduleType === "daily_slots" ? (regimen.slots || []) : [],
+        last_scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : (regimen.last_scheduled_for || null),
         active: true,
       }).catch(() => null);
-      setMessage(`${entry.name} registrado ahora (${formatTime(administeredNow)}). Próxima dosis calculada desde la hora real.`);
+
+      const suffix = scheduleType === "daily_slots" && nextAt
+        ? ` Se ha marcado como realizada la franja prevista de las ${formatTime(nextAt)}.`
+        : scheduleType === "interval"
+          ? " La siguiente se calculará desde la hora real."
+          : "";
+      setMessage(`${entry.name} registrado ahora (${formatTime(administeredNow)}).${suffix}`);
       onCreateScheduled?.({ type: "medication", id: created.id, label: entry.name, childId });
       await onChanged?.();
     } catch (error) {
@@ -128,7 +163,7 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     }
   };
 
-  const endRegimen = async (entry) => {
+  const endRegimen = async (entry, regimen) => {
     if (!entry?.id) return;
     const confirmed = window.confirm(`¿Finalizar la pauta de ${entry.name}?\n\nNo se borrará ninguna dosis ya registrada y dejarán de generarse próximas dosis y avisos.`);
     if (!confirmed) return;
@@ -136,8 +171,8 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     setMessage("");
     try {
       await Promise.all([
-        api.updateMedication(entry.id, { next_dose_interval: null }),
-        api.deleteMedicationRegimen(childId, entry.name).catch(() => null),
+        entry.next_dose_interval ? api.updateMedication(entry.id, { next_dose_interval: null }) : Promise.resolve(),
+        api.deleteMedicationRegimen(childId, regimen?.name || entry.name).catch(() => null),
       ]);
       setMessage(`Pauta de ${entry.name} finalizada.`);
       await onChanged?.();
@@ -148,11 +183,13 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     }
   };
 
-  const stateFor = (nextAt) => {
+  const stateFor = (nextAt, scheduleType, slot) => {
+    if (scheduleType === "prn") return { cls: "is-early", text: "Según necesidad · sin avisos" };
     const deltaMinutes = (nextAt.getTime() - clock.getTime()) / 60000;
-    if (deltaMinutes <= 0) return { cls: "is-due", text: `Pendiente desde hace ${Math.max(0, Math.floor(-deltaMinutes))} min` };
-    if (deltaMinutes <= advanceMinutes) return { cls: "is-soon", text: `Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` };
-    return { cls: "is-early", text: `Próxima dosis · ${formatTime(nextAt)}` };
+    const prefix = scheduleType === "daily_slots" && slot ? `${slot.label} · ` : "";
+    if (deltaMinutes <= 0) return { cls: "is-due", text: `${prefix}Pendiente desde hace ${Math.max(0, Math.floor(-deltaMinutes))} min` };
+    if (deltaMinutes <= advanceMinutes) return { cls: "is-soon", text: `${prefix}Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` };
+    return { cls: "is-early", text: `${prefix}Próxima · ${formatTime(nextAt)}` };
   };
 
   return (
@@ -161,21 +198,27 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
         {regimens.length > 0 && (
           <div className="medication-regimens">
             <div className="medication-regimens-title">Pautas activas</div>
-            {regimens.map(({ entry, rawEntry, nextAt }) => {
-              const state = stateFor(nextAt);
+            {regimens.map(({ entry, rawEntry, regimen, scheduleType, nextAt, slot }) => {
+              const state = stateFor(nextAt, scheduleType, slot);
+              const title = scheduleType === "daily_slots" && nextAt
+                ? `Registrar ahora la dosis prevista para ${slot?.label || "esta franja"} (${formatTime(nextAt)})`
+                : scheduleType === "interval" && nextAt
+                  ? `Registrar la dosis con la hora real. Hora prevista: ${formatTime(nextAt)}`
+                  : "Registrar ahora esta medicación según necesidad";
               return (
                 <div key={`regimen-${rawEntry.id}`} className={`medication-regimen-row ${state.cls}`}>
                   <div className="medication-regimen-info">
                     <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
-                    <span>{state.text}{state.cls === "is-due" ? ` · prevista ${formatTime(nextAt)}` : ""}</span>
+                    <span>{state.text}{state.cls === "is-due" && nextAt ? ` · prevista ${formatTime(nextAt)}` : ""}</span>
+                    <small className="medication-regimen-kind">{describeRegimen(regimen)}</small>
                   </div>
                   <div className="medication-regimen-actions">
                     <button
                       type="button"
                       className={`medication-quick-dose ${state.cls}`}
                       disabled={busyId === `dose:${rawEntry.id}`}
-                      title={`Registrar la dosis con la hora real. Hora prevista: ${formatTime(nextAt)}`}
-                      onClick={() => registerScheduledDose({ entry: { ...entry, id: rawEntry.id }, nextAt })}
+                      title={title}
+                      onClick={() => registerScheduledDose({ entry: { ...entry, id: rawEntry.id }, regimen, scheduleType, nextAt })}
                     >
                       <Icons.Pill />
                       {busyId === `dose:${rawEntry.id}` ? "Guardando…" : `Dar ahora · ${formatTime(clock)}`}
@@ -183,16 +226,21 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
                     <button
                       type="button"
                       className="medication-icon-btn"
-                      title="Dar ahora modificando dosis, hora o intervalo"
-                      onClick={() => onEditEntry?.("medication", null, { ...entry, time: new Date().toISOString() })}
+                      title="Dar ahora modificando dosis, hora o pauta"
+                      onClick={() => onEditEntry?.("medication", null, {
+                        ...entry,
+                        ...regimen,
+                        time: new Date().toISOString(),
+                        _scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : null,
+                      })}
                     >
                       <Icons.Pencil />
                     </button>
                     <button
                       type="button"
                       className="medication-icon-btn"
-                      title="Editar dosis futura e intervalo de la pauta, sin registrar una dosis"
-                      onClick={() => onEditEntry?.("medication", rawEntry, { ...entry }, { regimenOnly: true })}
+                      title="Editar dosis y pauta futura sin registrar una dosis"
+                      onClick={() => onEditEntry?.("medication", rawEntry, { ...entry, ...regimen }, { regimenOnly: true })}
                     >
                       <Icons.Settings />
                     </button>
@@ -201,7 +249,7 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
                       className="medication-icon-btn medication-end-btn"
                       disabled={busyId === `end:${rawEntry.id}`}
                       title="Finalizar pauta"
-                      onClick={() => endRegimen(rawEntry)}
+                      onClick={() => endRegimen(rawEntry, regimen)}
                     >
                       <Icons.X />
                     </button>
