@@ -2,6 +2,7 @@ const API_BASE = "./api/baby-buddy";
 const CONFIG_PATH = "./api/config";
 const DIAPER_SIZES_PATH = "./api/diaper-sizes";
 const DIAPER_STOCK_PATH = "./api/diaper-stock";
+const DIAPER_PURCHASES_PATH = "./api/diaper-purchases";
 const ROOM_STATUS_PATH = "./api/room-status";
 const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
@@ -147,11 +148,11 @@ export const api = {
     }
     return response.json();
   },
-  adjustDiaperStock: async (productId, delta) => {
+  adjustDiaperStock: async (productId, delta, meta = {}) => {
     const response = await fetch(`${DIAPER_STOCK_PATH}/${productId}/adjust`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ delta }),
+      body: JSON.stringify({ delta, ...meta }),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -164,6 +165,44 @@ export const api = {
 
 
   // Home Assistant room controls
+
+  getDiaperPurchases: async (limit = 40) => {
+    const response = await fetch(`${DIAPER_PURCHASES_PATH}?limit=${encodeURIComponent(limit)}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Historial de pañales ${response.status}: ${text}`);
+    }
+    return response.json();
+  },
+  correctDiaperPurchase: async (data) => {
+    const response = await fetch(`${DIAPER_PURCHASES_PATH}/correct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Historial de pañales ${response.status}`);
+    }
+    return response.json();
+  },
+  deleteDiaperPurchase: async (key) => {
+    const response = await fetch(`${DIAPER_PURCHASES_PATH}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text;
+      try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
+      throw new Error(detail || `Historial de pañales ${response.status}`);
+    }
+    return response.json();
+  },
+
   getRoomStatuses: async () => {
     const response = await fetch(ROOM_STATUS_PATH);
     if (!response.ok) throw new Error(`Room API error ${response.status}`);
