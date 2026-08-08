@@ -15,6 +15,7 @@ import DiaperBadge from "../components/DiaperBadge";
 import CustomTooltip from "../components/CustomTooltip";
 import ChartDetailBar from "../components/ChartDetailBar";
 import DayActivitiesModal from "../components/DayActivitiesModal";
+import DailySummaryHistory from "../components/DailySummaryHistory";
 import { Icons } from "../components/Icons";
 import { colors } from "../utils/colors";
 import {
@@ -31,7 +32,7 @@ import { useUnits } from "../utils/units";
 
 const COLLAPSED_COUNT = 2;
 
-export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRaw, sleepEntries, weeklySleep, changes, tummyTimes, weeklyTummyTimes, onEditEntry }) {
+export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRaw, sleepEntries, weeklySleep, changes, tummyTimes, weeklyTummyTimes, monthlyFeedings = [], monthlySleep = [], monthlyChanges = [], monthlyTummyTimes = [], monthlyTemperatures = [], monthlyMedications = [], onEditEntry }) {
   const units = useUnits();
   const [expanded, setExpanded] = useState({});
   const [dayModal, setDayModal] = useState(null);
@@ -84,8 +85,9 @@ export default function OverviewTab({ feedings, weeklyFeedings: weeklyFeedingsRa
   return (
     <>
       <div className="section-title-row">
-        <div><span className="eyebrow">HOY</span><h2>Resumen diario</h2></div>
+        <div><span className="eyebrow">ACTIVIDAD</span><h2>Actividad y resúmenes</h2></div>
       </div>
+      <DailySummaryHistory data={{ feedings: monthlyFeedings, sleep: monthlySleep, changes: monthlyChanges, tummy: monthlyTummyTimes, temperatures: monthlyTemperatures, medications: monthlyMedications }} />
       {/* Quick Stats */}
       <div
         style={{

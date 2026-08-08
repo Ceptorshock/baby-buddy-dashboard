@@ -31,6 +31,9 @@ import NightModePanel from "./components/NightModePanel";
 import SettingsModal from "./components/SettingsModal";
 import DiaperStockModal from "./components/DiaperStockModal";
 import HealthSummary from "./components/HealthSummary";
+import DailySummaryCard from "./components/DailySummaryCard";
+import HandoffCard from "./components/HandoffCard";
+import TimerReminderPanel from "./components/TimerReminderPanel";
 import { api } from "./api";
 import "./styles.css";
 
@@ -356,6 +359,17 @@ export default function App() {
         elapsedMap={timer.elapsedMap}
         roomStatus={data.roomStatus}
       />
+      <TimerReminderPanel
+        timers={timer.activeTimers}
+        elapsedMap={timer.elapsedMap}
+        config={data.timerReminderConfig}
+        onContinue={(item) => api.snoozeTimerReminder(data.child?.id, item.id, data.timerReminderConfig?.snooze_minutes || 30).catch(() => null)}
+        onFinish={async (item) => {
+          const stopped = await timer.stopTimer(item.id);
+          if (stopped) setModal({ type: timerNameToType(stopped.name), timerId: stopped.id });
+        }}
+        onCorrect={(item) => { setEditingTimerId(item.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+      />
 
       {/* Tab Content */}
       <main className="tab-content">
@@ -368,6 +382,11 @@ export default function App() {
               activeTimers={timer.activeTimers}
               elapsedMap={timer.elapsedMap}
             />
+            <DailySummaryCard
+              data={{ feedings: data.monthlyFeedings, sleep: data.monthlySleep, changes: data.monthlyChanges, tummy: data.monthlyTummyTimes, temperatures: data.monthlyTemperatures, medications: data.monthlyMedications }}
+              onOpenHistory={() => setActiveTab("activity")}
+            />
+            <HandoffCard childId={data.child?.id} childName={data.child?.first_name} currentUser={data.currentUser} activeTimers={timer.activeTimers} elapsedMap={timer.elapsedMap} />
             <MedicationCard
               medications={data.medications}
               childId={data.child?.id}
@@ -391,6 +410,12 @@ export default function App() {
             changes={data.changes}
             tummyTimes={data.tummyTimes}
             weeklyTummyTimes={data.weeklyTummyTimes}
+            monthlyFeedings={data.monthlyFeedings}
+            monthlySleep={data.monthlySleep}
+            monthlyChanges={data.monthlyChanges}
+            monthlyTummyTimes={data.monthlyTummyTimes}
+            monthlyTemperatures={data.monthlyTemperatures}
+            monthlyMedications={data.monthlyMedications}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
         )}

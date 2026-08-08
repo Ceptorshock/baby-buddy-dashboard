@@ -31,6 +31,8 @@ export default function SettingsModal({ onClose, onChanged }) {
   const [resetResult, setResetResult] = useState(null);
   const [medicationAlerts, setMedicationAlerts] = useState({ enabled: true, minutes_before: 20, alert_at_due: true, ha_mobile: true, telegram: true });
   const [savingAlerts, setSavingAlerts] = useState(false);
+  const [timerReminders, setTimerReminders] = useState({ enabled: true, feeding_minutes: 90, tummy_minutes: 30, snooze_minutes: 30 });
+  const [savingTimerReminders, setSavingTimerReminders] = useState(false);
 
   const children = settings.children || [];
   const enabledCount = useMemo(() => children.filter((child) => child.enabled).length, [children]);
@@ -41,6 +43,7 @@ export default function SettingsModal({ onClose, onChanged }) {
       const result = await api.getDashboardSettings();
       setSettings(result || { children: [] });
       if (result?.medication_alerts) setMedicationAlerts(result.medication_alerts);
+      if (result?.timer_reminders) setTimerReminders(result.timer_reminders);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -129,6 +132,22 @@ export default function SettingsModal({ onClose, onChanged }) {
     }
   };
 
+  const saveTimerReminders = async () => {
+    setSavingTimerReminders(true);
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.setTimerReminderSettings(timerReminders);
+      setTimerReminders(saved);
+      setMessage("Recordatorios de temporizadores actualizados.");
+      await onChanged?.();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSavingTimerReminders(false);
+    }
+  };
+
   const saveMedicationAlerts = async () => {
     setSavingAlerts(true);
     setError("");
@@ -156,6 +175,30 @@ export default function SettingsModal({ onClose, onChanged }) {
 
       {error && <div className="settings-error">{error}</div>}
       {message && <div className="settings-success">{message}</div>}
+
+      <section className="settings-child-card is-enabled" style={{ marginBottom: 16 }}>
+        <div className="settings-child-head">
+          <div className="settings-child-avatar"><Icons.Timer /></div>
+          <div className="settings-child-title">
+            <strong>¿Te has olvidado de parar?</strong>
+            <span>Avisa dentro de la app si una toma o el tiempo boca abajo parecen haberse quedado activos.</span>
+          </div>
+          <label className="settings-switch">
+            <input type="checkbox" checked={Boolean(timerReminders.enabled)} onChange={(e) => setTimerReminders({ ...timerReminders, enabled: e.target.checked })} />
+            <span className="settings-switch-track"><span /></span>
+            <em>{timerReminders.enabled ? "Activo" : "Desactivado"}</em>
+          </label>
+        </div>
+        <div className="settings-editor" style={{ marginTop: 10 }}>
+          <div className="settings-fields-grid">
+            <label><span>Aviso en tomas</span><FormInput type="number" min="15" max="360" value={timerReminders.feeding_minutes ?? 90} onChange={(e) => setTimerReminders({ ...timerReminders, feeding_minutes: Number(e.target.value || 90) })} /><small>Minutos. Por defecto: 90.</small></label>
+            <label><span>Aviso boca abajo</span><FormInput type="number" min="5" max="180" value={timerReminders.tummy_minutes ?? 30} onChange={(e) => setTimerReminders({ ...timerReminders, tummy_minutes: Number(e.target.value || 30) })} /><small>Minutos. Por defecto: 30.</small></label>
+            <label><span>Posponer «Sí, sigue»</span><FormInput type="number" min="5" max="120" value={timerReminders.snooze_minutes ?? 30} onChange={(e) => setTimerReminders({ ...timerReminders, snooze_minutes: Number(e.target.value || 30) })} /><small>Cuánto tarda en volver a preguntar.</small></label>
+          </div>
+          <p className="settings-help">El sueño no genera este aviso porque puede durar varias horas con normalidad.</p>
+          <div className="settings-editor-actions"><button className="settings-primary" onClick={saveTimerReminders} disabled={savingTimerReminders}>{savingTimerReminders ? "Guardando…" : "Guardar recordatorios"}</button></div>
+        </div>
+      </section>
 
       <section className="settings-child-card is-enabled" style={{ marginBottom: 16 }}>
         <div className="settings-child-head">

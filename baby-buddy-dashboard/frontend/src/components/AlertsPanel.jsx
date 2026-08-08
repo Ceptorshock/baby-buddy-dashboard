@@ -21,10 +21,6 @@ export default function AlertsPanel({ config, weeklyFeedings, activeTimers, elap
     const mins = Math.floor((Date.now() - lastFeeding.getTime()) / 60000);
     if (mins >= config.feeding_minutes) alerts.push(`Han pasado ${Math.floor(mins / 60)} h ${mins % 60} min desde la última toma.`);
   }
-  for (const timer of activeTimers || []) {
-    const mins = Math.floor((elapsedMap?.[timer.id] || 0) / 60);
-    if (mins >= config.active_timer_minutes) alerts.push(`El temporizador «${timer.name || "Actividad"}» lleva ${mins} minutos activo.`);
-  }
   const temperature = Number(roomStatus?.temperature);
   if (Number.isFinite(temperature)) {
     if (temperature < config.room_temp_min) alerts.push(`La habitación está fría: ${temperature.toFixed(1)} °C.`);
