@@ -1126,3 +1126,60 @@ body {
   .temperature-day-summary > div { padding: 10px 8px; }
   .temperature-day-summary strong { font-size: 15px; }
 }
+
+
+/* ES18.11: actividad actual visible e inventario rápido de pañales */
+.diaper-stock-header-btn { color:#fbbf24; border-color:#f59e0b35; background:#f59e0b0d; }
+.diaper-stock-header-btn:hover { border-color:#f59e0b70; color:#fcd34d; }
+.now-current-activities { display:flex; flex-direction:column; gap:8px; margin:-2px 0 13px; }
+.now-current-activity { display:flex; align-items:center; gap:10px; border:1px solid #818cf840; background:#818cf80d; border-radius:13px; padding:10px 12px; }
+.now-current-icon { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:#818cf81b; color:#a5b4fc; flex:0 0 auto; }
+.now-current-activity > div { display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.now-current-activity > div span { color:#818cf8; font-size:9px; font-weight:800; letter-spacing:.1em; }
+.now-current-activity > div strong { color:var(--text); font-size:14px; }
+.now-current-activity > b { font:700 12px var(--mono); color:#c7d2fe; white-space:nowrap; }
+.diaper-stock-intro { display:flex; align-items:center; gap:11px; margin-bottom:14px; padding:11px 12px; border:1px solid #f59e0b32; background:#f59e0b0b; border-radius:13px; }
+.diaper-stock-intro-icon { width:38px; height:38px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; border-radius:11px; background:#f59e0b16; color:#fbbf24; }
+.diaper-stock-intro > div { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.diaper-stock-intro strong { font-size:13px; color:var(--text); }
+.diaper-stock-intro span:not(.diaper-stock-intro-icon) { font-size:10px; line-height:1.4; color:var(--text-dim); }
+.diaper-stock-refresh { width:34px; height:34px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:9px; background:var(--card-bg); color:var(--text-muted); cursor:pointer; }
+.diaper-stock-refresh:disabled { opacity:.45; cursor:wait; }
+.diaper-stock-empty { padding:28px 14px; text-align:center; color:var(--text-dim); font-size:12px; }
+.diaper-stock-list { display:flex; flex-direction:column; gap:8px; }
+.diaper-stock-row { display:grid; grid-template-columns:minmax(100px,1fr) auto auto; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--border); background:var(--bg); border-radius:13px; }
+.diaper-stock-row-active { border-color:#f59e0b55; background:#f59e0b0a; }
+.diaper-stock-main { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.diaper-stock-size-line { display:flex; align-items:center; gap:7px; }
+.diaper-stock-size-line strong { font-size:13px; color:var(--text); }
+.diaper-stock-active-badge { padding:2px 5px; border-radius:5px; background:#f59e0b19; color:#fbbf24; font-size:8px; font-weight:800; letter-spacing:.06em; }
+.diaper-stock-product { color:var(--text-dim); font-size:9px; }
+.diaper-stock-count { display:flex; align-items:baseline; gap:3px; min-width:54px; justify-content:flex-end; }
+.diaper-stock-count strong { font:800 18px var(--mono); color:var(--text); }
+.diaper-stock-count span { color:var(--text-dim); font-size:9px; }
+.diaper-stock-actions { display:flex; align-items:center; gap:5px; }
+.diaper-stock-actions button { height:32px; border-radius:9px; border:1px solid var(--border); font:700 10px var(--font); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+.diaper-stock-actions button:disabled { opacity:.35; cursor:not-allowed; }
+.diaper-stock-buy { padding:0 9px; color:#86efac; background:#22c55e10; border-color:#22c55e38 !important; }
+.diaper-stock-buy svg { width:14px; height:14px; }
+.diaper-stock-adjust { width:32px; color:var(--text-muted); background:var(--card-bg); }
+.diaper-stock-editor { margin-top:13px; border:1px solid #8b5cf64a; background:#8b5cf60c; border-radius:13px; padding:12px; }
+.diaper-stock-editor > div:first-child { display:flex; flex-direction:column; gap:4px; }
+.diaper-stock-editor strong { color:var(--text); font-size:12px; }
+.diaper-stock-editor span { color:var(--text-dim); font-size:10px; line-height:1.4; }
+.diaper-stock-editor-controls { display:grid; grid-template-columns:minmax(80px,110px) auto auto; gap:7px; margin-top:10px; }
+.diaper-stock-editor-controls input { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; border-radius:9px; border:1px solid var(--border); background:var(--bg); color:var(--text); font:700 14px var(--mono); }
+.diaper-stock-editor-controls button { border:1px solid #22c55e45; background:#22c55e14; color:#86efac; border-radius:9px; padding:8px 11px; font:700 10px var(--font); cursor:pointer; }
+.diaper-stock-editor-controls .diaper-stock-cancel { border-color:var(--border); background:transparent; color:var(--text-muted); }
+.diaper-stock-footnote { margin-top:12px; color:var(--text-dim); font-size:9px; line-height:1.45; text-align:center; }
+@media (max-width: 520px) {
+  .diaper-stock-row { grid-template-columns:1fr auto; gap:8px; }
+  .diaper-stock-actions { grid-column:1 / -1; justify-content:flex-end; }
+  .diaper-stock-buy { flex:1; }
+  .diaper-stock-editor-controls { grid-template-columns:1fr 1fr; }
+  .diaper-stock-editor-controls input { grid-column:1 / -1; }
+}
+@media (max-width: 390px) {
+  .app-header > div:last-child { gap:6px !important; }
+  .refresh-btn { width:34px; height:34px; }
+}

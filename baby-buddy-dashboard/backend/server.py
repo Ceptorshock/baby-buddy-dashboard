@@ -996,6 +996,64 @@ async def _active_diaper_stock(child_id: int) -> dict:
     }
 
 
+
+
+async def _all_diaper_stocks() -> dict:
+    """Return stock for every diaper size mapped to a Grocy product."""
+    grocy_state = await _safe_state(GROCY_STOCK_ENTITY) if GROCY_STOCK_ENTITY else None
+    source_available = False
+    totals: dict[int, float] = {}
+    error = ""
+
+    if grocy_state:
+        attributes = grocy_state.get("attributes", {}) or {}
+        error = str(attributes.get("error") or "").strip()
+        products = attributes.get("products", [])
+        if not error and isinstance(products, list):
+            source_available = True
+            for item in products:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    product_id = int(item.get("product_id") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if not product_id:
+                    continue
+                totals[product_id] = totals.get(product_id, 0.0) + (_number_or_none(item.get("amount")) or 0.0)
+
+    items = []
+    for size, product_id in DIAPER_PRODUCT_IDS.items():
+        stock = totals.get(int(product_id), 0.0) if source_available else None
+        items.append({
+            "size": size,
+            "product_id": int(product_id),
+            "stock": stock,
+            "available": source_available,
+        })
+
+    return {
+        "available": source_available,
+        "source": GROCY_STOCK_ENTITY,
+        "error": error,
+        "can_add": bool(GROCY_RESTORE_SERVICE),
+        "can_remove": bool(GROCY_CONSUME_SERVICE),
+        "items": items,
+    }
+
+
+def _grocy_response_status(payload: dict) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    status = payload.get("status")
+    if status is None and isinstance(payload.get("service_response"), dict):
+        status = payload["service_response"].get("status")
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_datetime(value) -> datetime | None:
     if not value:
         return None
@@ -2298,6 +2356,81 @@ async def set_diaper_size(child_id: int, request: Request):
         "options": attrs.get("options", allowed),
         "friendly_name": attrs.get("friendly_name", entity_id),
     }
+
+
+
+
+@app.get("/api/diaper-stock")
+async def get_diaper_stock():
+    return await _all_diaper_stocks()
+
+
+@app.post("/api/diaper-stock/{product_id}/adjust")
+async def adjust_diaper_stock(product_id: int, request: Request):
+    size = next((name for name, pid in DIAPER_PRODUCT_IDS.items() if int(pid) == int(product_id)), None)
+    if not size:
+        raise HTTPException(404, "Ese producto no está configurado como talla de pañal")
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "JSON no válido")
+
+    try:
+        delta = int(payload.get("delta"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "La cantidad debe ser un número entero")
+    if delta == 0:
+        return await _all_diaper_stocks()
+    if abs(delta) > 5000:
+        raise HTTPException(400, "La cantidad es demasiado grande")
+
+    current_payload = await _all_diaper_stocks()
+    current_item = next((item for item in current_payload.get("items", []) if int(item.get("product_id") or 0) == product_id), None)
+    current_stock = _number_or_none((current_item or {}).get("stock"))
+    if current_stock is not None and current_stock + delta < 0:
+        raise HTTPException(400, f"No puedes dejar el stock de {size} por debajo de 0")
+
+    service = GROCY_RESTORE_SERVICE if delta > 0 else GROCY_CONSUME_SERVICE
+    if not service:
+        action = "reponer" if delta > 0 else "consumir"
+        raise HTTPException(409, f"No está configurada la acción de Grocy para {action} pañales")
+
+    response = await _call_ha_service_response(service, {"product_id": product_id, "amount": abs(delta)})
+    status = _grocy_response_status(response)
+    if status is not None and status not in (200, 201, 204):
+        raise HTTPException(502, f"Grocy devolvió HTTP {status}: {response.get('content', '')}")
+
+    if GROCY_STOCK_ENTITY:
+        try:
+            await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
+        except HTTPException:
+            pass
+        # Dejamos un instante para que el sensor REST refresque sus atributos.
+        await asyncio.sleep(0.25)
+
+    updated = await _all_diaper_stocks()
+    # Si el sensor aún no ha refrescado, damos al frontal el valor esperado para
+    # que el cambio se vea al instante; el refresco general lo reconciliará.
+    if current_stock is not None:
+        for item in updated.get("items", []):
+            if int(item.get("product_id") or 0) == product_id:
+                new_stock = _number_or_none(item.get("stock"))
+                if new_stock == current_stock:
+                    item["stock"] = max(0, current_stock + delta)
+                    item["optimistic"] = True
+                break
+
+    _record_audit(
+        request,
+        "stock_adjust",
+        "grocy_diaper_stock",
+        product_id,
+        before={"size": size, "stock": current_stock},
+        after={"size": size, "delta": delta, "stock": None if current_stock is None else max(0, current_stock + delta)},
+        child_id=None,
+    )
+    return updated
 
 
 @app.get("/api/room-status")
