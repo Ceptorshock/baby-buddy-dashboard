@@ -1302,3 +1302,138 @@ body {
   .diaper-modal-tabs button { padding:9px 6px; gap:5px; font-size:10px; }
   .diaper-modal-tabs button small { font-size:7px; }
 }
+
+/* ES18.14: resumen diario, relevo, recordatorios y medicación visual */
+.daily-summary-card {
+  margin-top:16px;
+  padding:14px 16px;
+  border:1px solid var(--border);
+  border-radius:16px;
+  background:var(--card-bg);
+}
+.daily-summary-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.daily-summary-head > div { display:flex; flex-direction:column; gap:2px; }
+.daily-summary-head strong { font-size:14px; color:var(--text); }
+.daily-summary-head button { border:1px solid var(--border); background:var(--bg); color:var(--text-muted); border-radius:9px; padding:7px 10px; font:700 10px var(--font); cursor:pointer; }
+.daily-summary-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.daily-summary-grid > div { min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:10px 6px; border-radius:11px; background:var(--bg); border:1px solid var(--border); text-align:center; }
+.daily-summary-grid > div > span { font-size:16px; }
+.daily-summary-grid strong { font:800 15px var(--mono); color:var(--text); }
+.daily-summary-grid small { color:var(--text-dim); font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.daily-summary-history-wrap { margin-bottom:16px; }
+.daily-summary-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; padding:4px; margin-bottom:12px; background:var(--bg); border:1px solid var(--border); border-radius:11px; }
+.daily-summary-tabs button { border:0; border-radius:8px; background:transparent; color:var(--text-muted); padding:8px; font:800 10px var(--font); cursor:pointer; }
+.daily-summary-tabs button.active { background:var(--card-bg); color:var(--text); box-shadow:0 2px 8px rgba(0,0,0,.18); }
+.daily-summary-date { margin:0 0 9px; color:var(--text-muted); font-size:11px; text-transform:capitalize; }
+.daily-summary-detail { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.daily-summary-detail > div { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+.daily-summary-detail span { color:var(--text-muted); font-size:10px; }
+.daily-summary-detail strong { color:var(--text); font-size:10px; text-align:right; }
+.daily-summary-history-list { display:flex; flex-direction:column; gap:6px; max-height:520px; overflow:auto; padding-right:2px; }
+.daily-summary-history-row { width:100%; display:grid; grid-template-columns:105px minmax(0,1fr); align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text-muted); cursor:pointer; text-align:left; }
+.daily-summary-history-row strong { color:var(--text); font-size:10px; text-transform:capitalize; }
+.daily-summary-history-row span { font-size:9px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.daily-summary-history-row.selected { border-color:#60a5fa55; background:#60a5fa0b; }
+.daily-summary-selected { position:sticky; bottom:0; padding:12px; border:1px solid #60a5fa45; border-radius:12px; background:var(--card-bg); box-shadow:0 -5px 18px rgba(0,0,0,.22); }
+.daily-summary-selected h4 { margin:0 0 9px; text-transform:capitalize; font-size:11px; }
+
+.handoff-card { margin-top:16px; padding:14px 16px; border:1px solid var(--border); border-radius:16px; background:var(--card-bg); }
+.handoff-card.enabled { border-color:#22c55e2e; }
+.handoff-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.handoff-title { display:flex; align-items:center; gap:10px; min-width:0; }
+.handoff-title > div { display:flex; flex-direction:column; gap:2px; }
+.handoff-title strong { font-size:13px; color:var(--text); }
+.handoff-icon { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; background:#22c55e12; font-size:18px; }
+.handoff-switch { position:relative; width:42px; height:24px; flex:0 0 auto; }
+.handoff-switch input { position:absolute; opacity:0; pointer-events:none; }
+.handoff-switch > span { display:block; width:100%; height:100%; border-radius:999px; background:var(--border); cursor:pointer; transition:.18s ease; }
+.handoff-switch > span::after { content:""; position:absolute; width:18px; height:18px; left:3px; top:3px; border-radius:50%; background:#fff; transition:.18s ease; }
+.handoff-switch input:checked + span { background:#22c55e; }
+.handoff-switch input:checked + span::after { transform:translateX(18px); }
+.handoff-disabled-text { margin:10px 0 0; color:var(--text-dim); font-size:10px; line-height:1.5; }
+.handoff-empty { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:11px; color:var(--text-muted); font-size:10px; }
+.handoff-empty button, .handoff-current button { border:1px solid #22c55e45; background:#22c55e12; color:#86efac; border-radius:9px; padding:8px 10px; font:800 10px var(--font); cursor:pointer; }
+.handoff-empty button:disabled, .handoff-current button:disabled { opacity:.45; cursor:not-allowed; }
+.handoff-current { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 12px; border:1px solid var(--border); border-radius:12px; background:var(--bg); }
+.handoff-current > div { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.handoff-current span { color:var(--text-dim); font-size:8px; text-transform:uppercase; letter-spacing:.08em; }
+.handoff-current strong { color:var(--text); font-size:13px; }
+.handoff-current small { color:var(--text-muted); font-size:9px; }
+.handoff-summary { margin-top:8px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
+.handoff-summary > div { display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 5px; border-radius:10px; border:1px solid var(--border); background:var(--bg); text-align:center; }
+.handoff-summary span { font-size:14px; }
+.handoff-summary strong { color:var(--text); font:800 13px var(--mono); }
+.handoff-summary small { color:var(--text-dim); font-size:8px; }
+.handoff-history-toggle { margin-top:8px; border:0; background:transparent; color:var(--text-muted); font:700 9px var(--font); cursor:pointer; padding:4px 0; }
+.handoff-history { display:flex; flex-direction:column; gap:5px; margin-top:5px; }
+.handoff-history > div { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--text-dim); font-size:9px; padding:6px 8px; background:var(--bg); border-radius:8px; }
+.handoff-history strong { color:var(--text-muted); font-size:9px; }
+.handoff-error { margin-top:8px; color:#fca5a5; font-size:9px; }
+
+.timer-reminder-stack { margin:10px 0 0; display:flex; flex-direction:column; gap:7px; }
+.timer-reminder { display:flex; align-items:center; gap:10px; padding:11px 13px; border:1px solid #f59e0b55; border-radius:12px; background:#f59e0b0c; }
+.timer-reminder-icon { color:#fbbf24; display:flex; }
+.timer-reminder-icon svg { width:18px; height:18px; }
+.timer-reminder-copy { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.timer-reminder-copy strong { color:var(--text); font-size:11px; }
+.timer-reminder-copy span { color:var(--text-muted); font-size:9px; }
+.timer-reminder-actions { display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; }
+.timer-reminder-actions button { border:1px solid var(--border); background:var(--card-bg); color:var(--text-muted); border-radius:8px; padding:7px 8px; font:700 9px var(--font); cursor:pointer; }
+.timer-reminder-actions button.primary { border-color:#f59e0b55; background:#f59e0b18; color:#fbbf24; }
+
+.medication-today { margin-bottom:14px; padding:11px 12px; border:1px solid #f9731635; border-radius:12px; background:#f9731607; }
+.medication-today-title { display:flex; flex-direction:column; gap:2px; margin-bottom:9px; }
+.medication-today-title strong { color:var(--text); font-size:11px; }
+.medication-today-title span { color:var(--text-dim); font-size:8px; }
+.medication-today-list { display:flex; flex-direction:column; gap:8px; }
+.medication-day-row { display:grid; grid-template-columns:minmax(105px,auto) 1fr; align-items:center; gap:10px; }
+.medication-day-row > strong { color:var(--text-muted); font-size:10px; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.medication-day-chips { display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; }
+.medication-day-chip { display:flex; align-items:center; gap:4px; padding:5px 7px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text-muted); font-size:8px; font-weight:800; }
+.medication-day-chip b { font-size:8px; }
+.medication-day-chip small { font:700 8px var(--mono); opacity:.75; }
+.medication-day-chip.done { border-color:#22c55e45; background:#22c55e0c; color:#86efac; }
+.medication-day-chip.pending { border-color:#f59e0b45; background:#f59e0b0b; color:#fbbf24; }
+.medication-day-chip.overdue { border-color:#ef444455; background:#ef44440d; color:#fca5a5; }
+.medication-day-chip.prn { border-color:#60a5fa40; background:#60a5fa0b; color:#93c5fd; }
+
+/* ES18.14: compras de pañales más legibles */
+.diaper-history-warning-standalone { display:inline-flex; margin:0 0 9px auto; }
+.diaper-purchase-desc { align-items:flex-end; gap:3px; }
+.diaper-purchase-desc .diaper-purchase-size { font:800 13px var(--font); color:var(--text); }
+.diaper-purchase-desc .diaper-purchase-units { font:900 14px var(--mono); color:#86efac; }
+
+@media (max-width:700px) {
+  .daily-summary-grid, .handoff-summary { grid-template-columns:repeat(5,minmax(58px,1fr)); overflow-x:auto; }
+  .daily-summary-detail { grid-template-columns:1fr; }
+  .timer-reminder { align-items:flex-start; flex-wrap:wrap; }
+  .timer-reminder-actions { width:100%; justify-content:stretch; }
+  .timer-reminder-actions button { flex:1; }
+  .medication-day-row { grid-template-columns:1fr; gap:5px; }
+  .medication-day-chips { justify-content:flex-start; }
+  .handoff-current { align-items:flex-start; flex-direction:column; }
+  .handoff-current button { width:100%; }
+}
+@media (max-width:430px) {
+  .daily-summary-grid > div, .handoff-summary > div { min-width:58px; }
+  .daily-summary-history-row { grid-template-columns:82px minmax(0,1fr); }
+  .diaper-purchase-row { grid-template-columns:minmax(0,1fr) auto; }
+  .diaper-purchase-desc { align-items:flex-start; grid-column:1; }
+  .diaper-purchase-actions { grid-column:2; grid-row:1 / span 2; }
+  .diaper-purchase-date { grid-column:1; }
+}
+.handoff-status-lines { margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.handoff-status-lines > div { display:flex; flex-direction:column; gap:3px; padding:9px 10px; border-radius:10px; border:1px solid var(--border); background:var(--bg); }
+.handoff-status-lines span { color:var(--text-dim); font-size:8px; text-transform:uppercase; letter-spacing:.07em; }
+.handoff-status-lines strong { color:var(--text-muted); font-size:9px; line-height:1.4; }
+@media (max-width:560px) { .handoff-status-lines { grid-template-columns:1fr; } }
+.handoff-note { margin-top:8px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+.handoff-note label { display:block; margin-bottom:6px; color:var(--text-muted); font-size:9px; font-weight:800; }
+.handoff-note label span { color:var(--text-dim); font-weight:500; }
+.handoff-note > div { display:flex; gap:6px; }
+.handoff-note input { flex:1; min-width:0; padding:8px 9px; border:1px solid var(--border); border-radius:8px; background:var(--card-bg); color:var(--text); font:500 10px var(--font); }
+.handoff-note button { border:1px solid #22c55e45; background:#22c55e12; color:#86efac; border-radius:8px; padding:7px 9px; font:800 9px var(--font); cursor:pointer; }
+.handoff-note button:disabled { opacity:.4; cursor:not-allowed; }
+.handoff-history > div > div { min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.handoff-history small { max-width:280px; color:var(--text-dim); font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width:560px) { .handoff-note > div { flex-direction:column; } .handoff-note button { width:100%; } }

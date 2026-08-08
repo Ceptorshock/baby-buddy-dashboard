@@ -4,6 +4,7 @@ import TimelineItem from "./TimelineItem";
 import { Icons } from "./Icons";
 import { api } from "../api";
 import { colors } from "../utils/colors";
+import MedicationTodayStrip from "./MedicationTodayStrip";
 import { formatTime, timeAgo } from "../utils/formatters";
 import {
   describeRegimen,
@@ -229,6 +230,7 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
   return (
     <div className="fade-in fade-in-2">
       <SectionCard title="Medicamentos" icon={<Icons.Pill />} color={colors.medication}>
+        <MedicationTodayStrip regimens={regimens} medications={medications} now={clock} />
         {regimens.length > 0 && (
           <div className="medication-regimens">
             <div className="medication-regimens-title">Pautas activas</div>

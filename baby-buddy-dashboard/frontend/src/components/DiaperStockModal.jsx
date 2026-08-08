@@ -166,7 +166,7 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
           onClick={() => changeView("history")}
         >
           <Icons.History />
-          <span>Historial</span>
+          <span>Últimas compras</span>
           {purchases.length > 0 && <small>{purchases.length}</small>}
         </button>
       </div>
@@ -219,10 +219,7 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
       {!loading && view === "history" && (
         <div className="diaper-tab-panel" role="tabpanel">
           <div className="diaper-purchase-history diaper-purchase-history-tab">
-            <div className="diaper-purchase-history-title">
-              <div><Icons.History /><div><strong>Últimas compras</strong><span>{history?.source_label || "Historial"}</span></div></div>
-              {history?.grocy_configured && !history?.grocy_direct && <span className="diaper-history-warning">Grocy no responde</span>}
-            </div>
+            {history?.grocy_configured && !history?.grocy_direct && <div className="diaper-history-warning diaper-history-warning-standalone">Grocy no responde</div>}
             {history?.error && <div className="diaper-history-note">No se pudo leer el diario de Grocy; se muestran las compras hechas desde esta app.</div>}
             {!history?.grocy_configured && <div className="diaper-history-note">Para incluir también compras añadidas directamente en Grocy, configura <strong>grocy_url</strong> y <strong>grocy_api_key</strong> en la app.</div>}
             {purchases.length === 0 ? <div className="diaper-stock-empty">Todavía no hay compras registradas.</div> : (
@@ -230,7 +227,7 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
                 {purchases.map((purchase) => (
                   <div className="diaper-purchase-row" key={purchase.key}>
                     <div className="diaper-purchase-date"><strong>{fmtDate(purchase.timestamp)}</strong><span>{purchase.source_label}{purchase.corrected ? " · corregida" : ""}</span></div>
-                    <div className="diaper-purchase-desc"><strong>+{fmtStock(purchase.amount)} uds</strong><span>{purchase.size}</span></div>
+                    <div className="diaper-purchase-desc"><strong className="diaper-purchase-size">{purchase.size}</strong><span className="diaper-purchase-units">+{fmtStock(purchase.amount)} unidades</span></div>
                     <div className="diaper-purchase-actions">
                       <button type="button" onClick={() => editPurchase(purchase)} disabled={busy} title="Corregir talla o cantidad"><Icons.Pencil /></button>
                       <button type="button" className="danger" onClick={() => removePurchase(purchase)} disabled={busy} title="Anular compra"><Icons.Trash /></button>

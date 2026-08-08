@@ -10,6 +10,7 @@ const CURRENT_USER_PATH = "./api/current-user";
 const AUDIT_PATH = "./api/audit";
 const DASHBOARD_SETTINGS_PATH = "./api/dashboard-settings";
 const MEDICATION_REGIMENS_PATH = "./api/medication-regimens";
+const HANDOFF_PATH = "./api/handoff";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -348,6 +349,72 @@ export const api = {
       let detail = text;
       try { const parsed = JSON.parse(text); detail = parsed.detail || text; } catch {}
       throw new Error(detail || `Medication-regimen API error ${response.status}`);
+    }
+    return response.json();
+  },
+
+  getHandoff: async (childId) => {
+    const response = await fetch(`${HANDOFF_PATH}/${childId}`);
+    if (!response.ok) throw new Error(`Relevo API error ${response.status}`);
+    return response.json();
+  },
+  setHandoffEnabled: async (childId, enabled) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/handoff/${childId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Relevo API error ${response.status}`);
+    }
+    return response.json();
+  },
+  updateHandoffNote: async (childId, note) => {
+    const response = await fetch(`${HANDOFF_PATH}/${childId}/current-note`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Relevo API error ${response.status}`);
+    }
+    return response.json();
+  },
+  takeOverHandoff: async (childId, note = "") => {
+    const response = await fetch(`${HANDOFF_PATH}/${childId}/take-over`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Relevo API error ${response.status}`);
+    }
+    return response.json();
+  },
+  snoozeTimerReminder: async (childId, timerId, minutes) => {
+    const response = await fetch(`./api/timer-reminders/${childId}/${timerId}/snooze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Timer reminder API error ${response.status}`);
+    }
+    return response.json();
+  },
+  setTimerReminderSettings: async (data) => {
+    const response = await fetch(`${DASHBOARD_SETTINGS_PATH}/timer-reminders`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Settings API error ${response.status}`);
     }
     return response.json();
   },

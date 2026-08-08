@@ -81,6 +81,23 @@ def _init_audit_db():
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS handoff_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                child_id INTEGER NOT NULL,
+                from_user_id TEXT,
+                from_user_name TEXT,
+                to_user_id TEXT,
+                to_user_name TEXT NOT NULL,
+                note TEXT
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_handoff_child_time ON handoff_events(child_id, timestamp DESC)"
+        )
         connection.commit()
 
 
@@ -574,6 +591,45 @@ def _initial_medication_alert_settings() -> dict:
 MEDICATION_ALERT_SETTINGS = _initial_medication_alert_settings()
 
 
+def _initial_handoff_settings() -> dict:
+    values = {"enabled_child_ids": [], "started_at": {}}
+    if APP_SETTINGS_PATH.exists():
+        try:
+            payload = json.loads(APP_SETTINGS_PATH.read_text())
+            stored = payload.get("handoff") if isinstance(payload, dict) else None
+            if isinstance(stored, dict) and isinstance(stored.get("enabled_child_ids"), list):
+                values["enabled_child_ids"] = [int(value) for value in stored["enabled_child_ids"] if int(value) > 0]
+                if isinstance(stored.get("started_at"), dict):
+                    values["started_at"] = {str(key): str(value) for key, value in stored["started_at"].items() if value}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("No se pudieron leer los ajustes de relevo")
+    return values
+
+
+def _initial_timer_reminder_settings() -> dict:
+    values = {"enabled": True, "feeding_minutes": 90, "tummy_minutes": 30, "snooze_minutes": 30}
+    if APP_SETTINGS_PATH.exists():
+        try:
+            payload = json.loads(APP_SETTINGS_PATH.read_text())
+            stored = payload.get("timer_reminders") if isinstance(payload, dict) else None
+            if isinstance(stored, dict):
+                values["enabled"] = bool(stored.get("enabled", True))
+                values["feeding_minutes"] = max(15, min(360, int(stored.get("feeding_minutes", 90))))
+                values["tummy_minutes"] = max(5, min(180, int(stored.get("tummy_minutes", 30))))
+                values["snooze_minutes"] = max(5, min(120, int(stored.get("snooze_minutes", 30))))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("No se pudieron leer los ajustes de recordatorio de temporizadores")
+    return values
+
+
+HANDOFF_SETTINGS = _initial_handoff_settings()
+TIMER_REMINDER_SETTINGS = _initial_timer_reminder_settings()
+
+
+def _handoff_enabled(child_id: int) -> bool:
+    return int(child_id) in {int(value) for value in HANDOFF_SETTINGS.get("enabled_child_ids", [])}
+
+
 def _medication_regimen_key(child_id: int, name: str) -> str:
     return f"{int(child_id)}::{str(name or '').strip().casefold()}"
 
@@ -703,6 +759,7 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 http_client: httpx.AsyncClient | None = None
 ha_client: httpx.AsyncClient | None = None
 active_alerts: dict[str, dict] = {}
+timer_reminder_snoozes: dict[str, datetime] = {}
 child_name_cache: dict[int, str] = {}
 
 
@@ -1946,23 +2003,36 @@ async def _collect_alerts() -> list[dict]:
                         ),
                     })
 
-        for timer in timers:
-            timer_child = _timer_child_id(timer)
-            if timer_child not in (0, child_id):
-                continue
-            started = _parse_datetime(timer.get("start"))
-            if not started:
-                continue
-            elapsed_minutes = max(0, int((now - started.astimezone(timezone.utc)).total_seconds() // 60))
-            if elapsed_minutes >= ALERTS_CONFIG["active_timer_minutes"]:
+        if TIMER_REMINDER_SETTINGS.get("enabled", True):
+            for timer in timers:
+                timer_child = _timer_child_id(timer)
+                if timer_child not in (0, child_id):
+                    continue
+                started = _parse_datetime(timer.get("start"))
+                if not started:
+                    continue
                 timer_name = str(timer.get("name") or "Actividad")
-                alerts.append({
-                    "key": f"active_timer:{child_id}:{timer.get('id', timer_name)}",
-                    "type": "active_timer",
-                    "title": f"Actividad larga · {child_name}",
-                    "message": f"El temporizador «{timer_name}» lleva {elapsed_minutes} minutos activo.",
-                    "alexa_message": f"Aviso. La actividad {timer_name} de {child_name} lleva {elapsed_minutes} minutos activa.",
-                })
+                timer_key = timer_name.casefold()
+                if "sleep" in timer_key or "sueño" in timer_key:
+                    continue
+                is_tummy = "tummy" in timer_key or "boca abajo" in timer_key
+                threshold = int(TIMER_REMINDER_SETTINGS.get("tummy_minutes" if is_tummy else "feeding_minutes", 30 if is_tummy else 90))
+                elapsed_minutes = max(0, int((now - started.astimezone(timezone.utc)).total_seconds() // 60))
+                if elapsed_minutes >= threshold:
+                    activity_label = "el tiempo boca abajo" if is_tummy else "la toma"
+                    alert_key = f"active_timer:{child_id}:{timer.get('id', timer_name)}"
+                    snoozed_until = timer_reminder_snoozes.get(alert_key)
+                    if snoozed_until and now < snoozed_until:
+                        continue
+                    if snoozed_until and now >= snoozed_until:
+                        timer_reminder_snoozes.pop(alert_key, None)
+                    alerts.append({
+                        "key": alert_key,
+                        "type": "active_timer",
+                        "title": f"¿Sigue {activity_label}? · {child_name}",
+                        "message": f"{activity_label.capitalize()} lleva {elapsed_minutes} minutos activa. Comprueba si olvidaste finalizarla.",
+                        "alexa_message": f"Aviso. Comprueba si {activity_label} de {child_name} sigue activa. Lleva {elapsed_minutes} minutos.",
+                    })
 
         if MEDICATION_ALERT_SETTINGS.get("enabled", True):
             medications = await _baby_buddy_results(
@@ -2204,6 +2274,8 @@ async def get_dashboard_settings():
         ],
         "disabled_child_ids": sorted(DISABLED_CHILD_IDS),
         "medication_alerts": MEDICATION_ALERT_SETTINGS,
+        "handoff": HANDOFF_SETTINGS,
+        "timer_reminders": TIMER_REMINDER_SETTINGS,
     }
 
 
@@ -2225,6 +2297,63 @@ async def set_medication_alert_settings(request: Request):
         raise HTTPException(500, f"No se pudieron guardar los avisos de medicación: {exc}")
     _record_audit(request, "update", "settings", "medication_alerts", after=MEDICATION_ALERT_SETTINGS)
     return MEDICATION_ALERT_SETTINGS
+
+
+@app.put("/api/dashboard-settings/handoff/{child_id}")
+async def set_handoff_enabled(child_id: int, request: Request):
+    await _child_raw(child_id)
+    payload = await request.json()
+    enabled = bool(payload.get("enabled", True))
+    enabled_ids = {int(value) for value in HANDOFF_SETTINGS.get("enabled_child_ids", [])}
+    was_enabled = child_id in enabled_ids
+    started_at = dict(HANDOFF_SETTINGS.get("started_at") or {})
+    if enabled:
+        enabled_ids.add(child_id)
+        if not was_enabled:
+            started_at[str(child_id)] = datetime.now(timezone.utc).isoformat()
+    else:
+        enabled_ids.discard(child_id)
+    HANDOFF_SETTINGS["enabled_child_ids"] = sorted(enabled_ids)
+    HANDOFF_SETTINGS["started_at"] = started_at
+    try:
+        _save_app_settings({"handoff": HANDOFF_SETTINGS, "timer_reminders": TIMER_REMINDER_SETTINGS, "medication_alerts": MEDICATION_ALERT_SETTINGS})
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudo guardar el modo relevo: {exc}")
+    _record_audit(request, "update", "settings", f"handoff:{child_id}", after={"enabled": enabled}, child_id=child_id)
+    return {"child_id": child_id, "enabled": enabled}
+
+
+@app.put("/api/dashboard-settings/timer-reminders")
+async def set_timer_reminder_settings(request: Request):
+    payload = await request.json()
+    TIMER_REMINDER_SETTINGS["enabled"] = bool(payload.get("enabled", TIMER_REMINDER_SETTINGS.get("enabled", True)))
+    for key, minimum, maximum, default in (("feeding_minutes", 15, 360, 90), ("tummy_minutes", 5, 180, 30), ("snooze_minutes", 5, 120, 30)):
+        try:
+            value = int(payload.get(key, TIMER_REMINDER_SETTINGS.get(key, default)))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Los tiempos de recordatorio deben ser minutos válidos")
+        TIMER_REMINDER_SETTINGS[key] = max(minimum, min(maximum, value))
+    try:
+        _save_app_settings({"handoff": HANDOFF_SETTINGS, "timer_reminders": TIMER_REMINDER_SETTINGS, "medication_alerts": MEDICATION_ALERT_SETTINGS})
+    except OSError as exc:
+        raise HTTPException(500, f"No se pudieron guardar los recordatorios: {exc}")
+    _record_audit(request, "update", "settings", "timer_reminders", after=TIMER_REMINDER_SETTINGS)
+    return TIMER_REMINDER_SETTINGS
+
+
+@app.post("/api/timer-reminders/{child_id}/{timer_id}/snooze")
+async def snooze_timer_reminder(child_id: int, timer_id: str, request: Request):
+    payload = await request.json()
+    try:
+        minutes = int(payload.get("minutes", TIMER_REMINDER_SETTINGS.get("snooze_minutes", 30)))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Minutos de pausa no válidos")
+    minutes = max(5, min(120, minutes))
+    key = f"active_timer:{child_id}:{timer_id}"
+    timer_reminder_snoozes[key] = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    await _dismiss_alert(key)
+    active_alerts.pop(key, None)
+    return {"ok": True, "minutes": minutes, "until": timer_reminder_snoozes[key].isoformat()}
 
 
 @app.get("/api/medication-regimens/{child_id}")
@@ -2491,6 +2620,211 @@ async def clear_dashboard_child_history(child_id: int, request: Request):
         "errors": errors,
         "grocy_stock_changed": False,
     }
+
+
+def _handoff_row(row) -> dict:
+    return {
+        "id": row[0],
+        "timestamp": row[1],
+        "child_id": row[2],
+        "from_user_id": row[3] or "",
+        "from_user_name": row[4] or "",
+        "to_user_id": row[5] or "",
+        "to_user_name": row[6] or "Acceso directo",
+        "note": row[7] or "",
+    }
+
+
+def _handoff_history(child_id: int, limit: int = 12) -> list[dict]:
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(
+            """SELECT id, timestamp, child_id, from_user_id, from_user_name, to_user_id, to_user_name, note
+               FROM handoff_events WHERE child_id = ? ORDER BY id DESC LIMIT ?""",
+            (child_id, max(1, min(100, limit))),
+        ).fetchall()
+    return [_handoff_row(row) for row in rows]
+
+
+def _duration_hours(value) -> float:
+    if not value:
+        return 0.0
+    try:
+        parts = [float(part) for part in str(value).split(":")]
+    except (TypeError, ValueError):
+        return 0.0
+    if len(parts) == 3:
+        return parts[0] + parts[1] / 60 + parts[2] / 3600
+    if len(parts) == 2:
+        return parts[0] + parts[1] / 60
+    return parts[0] if parts else 0.0
+
+
+async def _next_medication_summary(child_id: int) -> dict | None:
+    now = datetime.now(timezone.utc)
+    medications = await _baby_buddy_results("medication", {"child": child_id, "limit": 100, "ordering": "-time"})
+    latest_by_name: dict[str, dict] = {}
+    for medication in medications:
+        key = str(medication.get("name") or "").strip().casefold()
+        if key and key not in latest_by_name:
+            latest_by_name[key] = medication
+    candidates = []
+    for raw in latest_by_name.values():
+        medication = _effective_medication(child_id, raw)
+        regimen = _medication_regimen_for(child_id, medication.get("name", ""))
+        if not regimen:
+            legacy_interval = str(raw.get("next_dose_interval") or "").strip()
+            if not legacy_interval:
+                continue
+            regimen = {"name": medication.get("name"), "schedule_type": "interval", "next_dose_interval": legacy_interval, "slots": [], "active": True}
+        schedule_type = _normalize_medication_schedule_type(regimen.get("schedule_type"), str(regimen.get("next_dose_interval") or raw.get("next_dose_interval") or "").strip(), regimen.get("slots"))
+        if schedule_type == "prn":
+            continue
+        administered = _parse_datetime(raw.get("time"))
+        if not administered:
+            continue
+        slot = None
+        if schedule_type == "daily_slots":
+            next_slot = _next_daily_medication_slot(regimen, administered, now, 0)
+            if not next_slot:
+                continue
+            next_at, slot = next_slot
+        else:
+            seconds = _interval_seconds(regimen.get("next_dose_interval") or raw.get("next_dose_interval"))
+            if seconds <= 0:
+                continue
+            next_at = administered + timedelta(seconds=seconds)
+        candidates.append((next_at, medication, slot))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    next_at, medication, slot = candidates[0]
+    return {
+        "name": str(medication.get("name") or "Medicamento"),
+        "dosage": medication.get("dosage"),
+        "dosage_unit": str(medication.get("dosage_unit") or ""),
+        "time": next_at.isoformat(),
+        "slot": slot.get("label") if isinstance(slot, dict) else None,
+        "due": next_at.astimezone(timezone.utc) <= now,
+    }
+
+
+async def _handoff_summary(child_id: int, since: str | None) -> dict:
+    if not since:
+        return {"feedings": 0, "feeding_amount": 0, "diapers": 0, "wet": 0, "solid": 0, "both": 0, "sleep_hours": 0, "medications": 0, "temperature_max": None}
+    queries = await asyncio.gather(
+        _baby_buddy_results("feedings", {"child": child_id, "start_min": since, "limit": 300, "ordering": "-start"}),
+        _baby_buddy_results("changes", {"child": child_id, "date_min": since, "limit": 300, "ordering": "-time"}),
+        _baby_buddy_results("sleep", {"child": child_id, "start_min": since, "limit": 300, "ordering": "-start"}),
+        _baby_buddy_results("medication", {"child": child_id, "time_min": since, "limit": 300, "ordering": "-time"}),
+        _baby_buddy_results("temperature", {"child": child_id, "time_min": since, "limit": 300, "ordering": "-time"}),
+        return_exceptions=True,
+    )
+    feedings, changes, sleeps, medications, temperatures = [value if isinstance(value, list) else [] for value in queries]
+    wet = sum(1 for item in changes if item.get("wet") and not item.get("solid"))
+    solid = sum(1 for item in changes if item.get("solid") and not item.get("wet"))
+    both = sum(1 for item in changes if item.get("wet") and item.get("solid"))
+    temperature_values = []
+    for item in temperatures:
+        try:
+            temperature_values.append(float(item.get("temperature")))
+        except (TypeError, ValueError):
+            pass
+    return {
+        "feedings": len(feedings),
+        "feeding_amount": round(sum(float(item.get("amount") or 0) for item in feedings), 1),
+        "diapers": len(changes),
+        "wet": wet,
+        "solid": solid,
+        "both": both,
+        "sleep_hours": round(sum(_duration_hours(item.get("duration")) for item in sleeps), 2),
+        "medications": len(medications),
+        "temperature_max": max(temperature_values) if temperature_values else None,
+    }
+
+
+@app.get("/api/handoff/{child_id}")
+async def get_handoff(child_id: int):
+    await _child_raw(child_id)
+    history = _handoff_history(child_id, 12)
+    enabled = _handoff_enabled(child_id)
+    started_at = str((HANDOFF_SETTINGS.get("started_at") or {}).get(str(child_id)) or "")
+    current = history[0] if history else None
+    if current and started_at:
+        try:
+            if _parse_datetime(current.get("timestamp")) < _parse_datetime(started_at):
+                current = None
+        except TypeError:
+            current = None
+    if not enabled:
+        current = None
+    summary, next_medication = await asyncio.gather(
+        _handoff_summary(child_id, current.get("timestamp") if current else None),
+        _next_medication_summary(child_id),
+    )
+    return {"enabled": enabled, "current": current, "history": history, "summary": summary, "next_medication": next_medication}
+
+
+@app.patch("/api/handoff/{child_id}/current-note")
+async def update_handoff_note(child_id: int, request: Request):
+    await _child_raw(child_id)
+    if not _handoff_enabled(child_id):
+        raise HTTPException(409, "El modo relevo está desactivado")
+    history = _handoff_history(child_id, 1)
+    current = history[0] if history else None
+    started_at = str((HANDOFF_SETTINGS.get("started_at") or {}).get(str(child_id)) or "")
+    if current and started_at:
+        try:
+            if _parse_datetime(current.get("timestamp")) < _parse_datetime(started_at):
+                current = None
+        except TypeError:
+            current = None
+    if not current:
+        raise HTTPException(404, "No hay un relevo activo al que añadir una nota")
+    payload = await request.json()
+    note = str(payload.get("note") or "").strip()[:500]
+    before = dict(current)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute("UPDATE handoff_events SET note = ? WHERE id = ?", (note, current["id"]))
+        connection.commit()
+    _record_audit(request, "update", "handoff", current["id"], before=before, after={**before, "note": note}, child_id=child_id)
+    return {"ok": True, "note": note}
+
+
+@app.post("/api/handoff/{child_id}/take-over")
+async def take_over_handoff(child_id: int, request: Request):
+    await _child_raw(child_id)
+    if not _handoff_enabled(child_id):
+        raise HTTPException(409, "El modo relevo está desactivado para este bebé")
+    payload = await request.json()
+    note = str(payload.get("note") or "").strip()[:500]
+    user = _request_user(request)
+    history = _handoff_history(child_id, 1)
+    previous = history[0] if history else None
+    started_at = str((HANDOFF_SETTINGS.get("started_at") or {}).get(str(child_id)) or "")
+    if previous and started_at:
+        try:
+            if _parse_datetime(previous.get("timestamp")) < _parse_datetime(started_at):
+                previous = None
+        except TypeError:
+            previous = None
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        cursor = connection.execute(
+            """INSERT INTO handoff_events(timestamp, child_id, from_user_id, from_user_name, to_user_id, to_user_name, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                now, child_id,
+                previous.get("to_user_id", "") if previous else "",
+                previous.get("to_user_name", "") if previous else "",
+                user.get("id", ""), user.get("display_name", "Acceso directo"), note,
+            ),
+        )
+        connection.commit()
+        event_id = cursor.lastrowid
+    _record_audit(request, "create", "handoff", event_id, after={"timestamp": now, "note": note}, child_id=child_id)
+    history = _handoff_history(child_id, 12)
+    summary, next_medication = await asyncio.gather(_handoff_summary(child_id, now), _next_medication_summary(child_id))
+    return {"enabled": True, "current": history[0], "history": history, "summary": summary, "next_medication": next_medication}
 
 
 @app.get("/api/current-user")

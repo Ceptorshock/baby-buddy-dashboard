@@ -35,6 +35,10 @@ export function useBabyData() {
   const [heights, setHeights] = useState([]);
   const [monthlyFeedings, setMonthlyFeedings] = useState([]);
   const [monthlySleep, setMonthlySleep] = useState([]);
+  const [monthlyChanges, setMonthlyChanges] = useState([]);
+  const [monthlyTummyTimes, setMonthlyTummyTimes] = useState([]);
+  const [monthlyTemperatures, setMonthlyTemperatures] = useState([]);
+  const [monthlyMedications, setMonthlyMedications] = useState([]);
   const [notes, setNotes] = useState([]);
   const [timers, setTimers] = useState([]);
   const [medications, setMedications] = useState([]);
@@ -50,6 +54,7 @@ export function useBabyData() {
   const [roomStatuses, setRoomStatuses] = useState({});
   const [calendarStatuses, setCalendarStatuses] = useState({});
   const [alertsConfig, setAlertsConfig] = useState({ enabled: true, feeding_minutes: 240, active_timer_minutes: 180, room_temp_min: 18, room_temp_max: 27, diaper_stock_low_threshold: 10 });
+  const [timerReminderConfig, setTimerReminderConfig] = useState({ enabled: true, feeding_minutes: 90, tummy_minutes: 30, snooze_minutes: 30 });
   const intervalRef = useRef(null);
   const childIdRef = useRef(null);
   const defaultChildIdRef = useRef(null);
@@ -91,6 +96,10 @@ export function useBabyData() {
         notesRes,
         monthlyFeedingsRes,
         monthlySleepRes,
+        monthlyChangesRes,
+        monthlyTummyRes,
+        monthlyTemperatureRes,
+        monthlyMedicationRes,
         medicationRes,
         auditRes,
       ] = await Promise.all([
@@ -109,7 +118,11 @@ export function useBabyData() {
         api.getNotes({ child: c, limit: 20, ordering: "-time" }),
         api.getFeedings({ child: c, start_min: monthMin, limit: 500, ordering: "-start" }),
         api.getSleep({ child: c, start_min: monthMin, limit: 500, ordering: "-start" }),
-        api.getMedication({ child: c, limit: 50, ordering: "-time" }).catch(() => ({ results: [] })),
+        api.getChanges({ child: c, date_min: monthMin, limit: 500, ordering: "-time" }),
+        api.getTummyTimes({ child: c, start_min: monthMin, limit: 500, ordering: "-start" }),
+        api.getTemperature({ child: c, time_min: monthMin, limit: 500, ordering: "-time" }),
+        api.getMedication({ child: c, time_min: monthMin, limit: 500, ordering: "-time" }).catch(() => ({ results: [] })),
+        api.getMedication({ child: c, limit: 100, ordering: "-time" }).catch(() => ({ results: [] })),
         api.getAudit(c, 250).catch(() => ({ results: [] })),
       ]);
 
@@ -128,6 +141,10 @@ export function useBabyData() {
       setNotes(notesRes.results || []);
       setMonthlyFeedings(monthlyFeedingsRes.results || []);
       setMonthlySleep(monthlySleepRes.results || []);
+      setMonthlyChanges(monthlyChangesRes.results || []);
+      setMonthlyTummyTimes(monthlyTummyRes.results || []);
+      setMonthlyTemperatures(monthlyTemperatureRes.results || []);
+      setMonthlyMedications(monthlyMedicationRes.results || []);
       setMedications(medicationRes.results || []);
       setAuditEntries(auditRes.results || []);
       setLastSync(new Date());
@@ -212,12 +229,14 @@ export function useBabyData() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [childrenRes] = await Promise.all([
+      const [childrenRes, dashboardSettings] = await Promise.all([
         api.getChildren(),
+        api.getDashboardSettings().catch(() => null),
         fetchDiaperSizes(),
         fetchRoomStatuses(),
         fetchCalendarStatuses(),
       ]);
+      if (dashboardSettings?.timer_reminders) setTimerReminderConfig(dashboardSettings.timer_reminders);
       const allChildren = (childrenRes.results || []).map(fixChildPicture);
       setChildren(allChildren);
 
@@ -272,6 +291,10 @@ export function useBabyData() {
     setNotes(mock.notes);
     setMonthlyFeedings(mock.monthlyFeedings);
     setMonthlySleep(mock.monthlySleep);
+    setMonthlyChanges(mock.changes || []);
+    setMonthlyTummyTimes(mock.monthlyTummyTimes || mock.tummyTimes || []);
+    setMonthlyTemperatures(mock.temperatures || []);
+    setMonthlyMedications([]);
     setDiaperSizes({ "1": { configured: true, available: true, state: "Talla 1", options: ["Talla 0", "Talla 1", "Talla 2"] } });
     setLastSync(new Date());
     setLoading(false);
@@ -301,6 +324,10 @@ export function useBabyData() {
       setNotes(mock.notes);
       setMonthlyFeedings(mock.monthlyFeedings);
       setMonthlySleep(mock.monthlySleep);
+      setMonthlyChanges(mock.changes || []);
+      setMonthlyTummyTimes(mock.monthlyTummyTimes || mock.tummyTimes || []);
+      setMonthlyTemperatures(mock.temperatures || []);
+      setMonthlyMedications([]);
     },
     [children, child]
   );
@@ -314,6 +341,7 @@ export function useBabyData() {
         if (cfg.unit_system) setUnitSystem(cfg.unit_system);
         if (cfg.alerts) setAlertsConfig(cfg.alerts);
         if (cfg.night_mode) setNightModeConfig(cfg.night_mode);
+        api.getDashboardSettings().then((settings) => { if (settings?.timer_reminders) setTimerReminderConfig(settings.timer_reminders); }).catch(() => null);
         api.getCurrentUser().then(setCurrentUser).catch(() => setCurrentUser({ display_name: "Acceso directo", via_ingress: false }));
         const configuredDefault = Number(cfg.default_child_id || 0);
         defaultChildIdRef.current = configuredDefault > 0 ? configuredDefault : null;
@@ -352,6 +380,10 @@ export function useBabyData() {
     heights,
     monthlyFeedings,
     monthlySleep,
+    monthlyChanges,
+    monthlyTummyTimes,
+    monthlyTemperatures,
+    monthlyMedications,
     notes,
     timers,
     medications,
@@ -373,6 +405,7 @@ export function useBabyData() {
     calendarStatus: child ? calendarStatuses[String(child.id)] : null,
     refreshCalendars: fetchCalendarStatuses,
     alertsConfig,
+    timerReminderConfig,
     refetch: fetchAll,
   };
 }
