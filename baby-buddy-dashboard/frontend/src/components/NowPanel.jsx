@@ -75,12 +75,6 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
       label: "Último sueño",
       value: sleep ? `${sleepHours.toFixed(1)} h · ${ago(sleepDate)}` : "Sin datos",
     },
-    {
-      icon: <Icons.Timer />,
-      color: active ? "#F59E0B" : "#22C55E",
-      label: "Estado actual",
-      value: active ? `${activeLabel(active.name)} · ${Math.floor((elapsedMap?.[active.id] || 0) / 60)} min` : "Sin actividad en curso",
-    },
   ];
 
   return (

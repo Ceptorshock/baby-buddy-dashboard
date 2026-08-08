@@ -79,7 +79,7 @@ function activeRegimens(medications, regimenMap, now, advanceMinutes) {
   });
 }
 
-export default function MedicationCard({ medications = [], childId, onEditEntry, onAdd, onCreateScheduled, onChanged }) {
+export default function MedicationCard({ medications = [], childId, onEditEntry, onAdd, onCreateScheduled, onChanged, compact = false, onOpenFull }) {
   const recent = medications.slice(0, 5);
   const [busyId, setBusyId] = useState(null);
   const [message, setMessage] = useState("");
@@ -191,6 +191,40 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     if (deltaMinutes <= advanceMinutes) return { cls: "is-soon", text: `${prefix}Toca en ${Math.max(1, Math.ceil(deltaMinutes))} min` };
     return { cls: "is-early", text: `${prefix}Próxima · ${formatTime(nextAt)}` };
   };
+
+  if (compact) {
+    const nextRegimen = regimens.find((item) => item.scheduleType !== "prn" && item.nextAt);
+    if (!nextRegimen) return null;
+    const { entry, rawEntry, regimen, scheduleType, nextAt, slot } = nextRegimen;
+    const state = stateFor(nextAt, scheduleType, slot);
+    return (
+      <div className="fade-in fade-in-2 medication-compact-wrap">
+        <SectionCard title="Próxima medicación" icon={<Icons.Pill />} color={colors.medication}>
+          <div className={`medication-regimen-row medication-regimen-compact ${state.cls}`}>
+            <div className="medication-regimen-info">
+              <strong>{entry.name}{doseText(entry) ? ` · ${doseText(entry)}` : ""}</strong>
+              <span>{state.text}{state.cls === "is-due" && nextAt ? ` · prevista ${formatTime(nextAt)}` : ""}</span>
+            </div>
+            <div className="medication-regimen-actions medication-regimen-actions-compact">
+              <button
+                type="button"
+                className={`medication-quick-dose ${state.cls}`}
+                disabled={busyId === `dose:${rawEntry.id}`}
+                onClick={() => registerScheduledDose({ entry: { ...entry, id: rawEntry.id }, regimen, scheduleType, nextAt })}
+              >
+                <Icons.Pill />
+                {busyId === `dose:${rawEntry.id}` ? "Guardando…" : `Dar ahora · ${formatTime(clock)}`}
+              </button>
+              {onOpenFull && (
+                <button type="button" className="medication-open-health" onClick={onOpenFull}>Ver salud</button>
+              )}
+            </div>
+          </div>
+          {message && <div className="medication-message">{message}</div>}
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-in fade-in-2">

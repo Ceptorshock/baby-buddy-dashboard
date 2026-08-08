@@ -7,8 +7,7 @@ import { colors } from "./utils/colors";
 import { getAge, formatElapsed } from "./utils/formatters";
 import OverviewTab from "./tabs/OverviewTab";
 import GrowthTab from "./tabs/GrowthTab";
-import NotesTab from "./tabs/NotesTab";
-import AuditTab from "./tabs/AuditTab";
+import MoreTab from "./tabs/MoreTab";
 import FeedingForm from "./components/forms/FeedingForm";
 import SleepForm from "./components/forms/SleepForm";
 import DiaperForm from "./components/forms/DiaperForm";
@@ -30,14 +29,16 @@ import UndoToast from "./components/UndoToast";
 import MedicationCard from "./components/MedicationCard";
 import NightModePanel from "./components/NightModePanel";
 import SettingsModal from "./components/SettingsModal";
+import HealthSummary from "./components/HealthSummary";
 import { api } from "./api";
 import "./styles.css";
 
 const TABS = [
-  { id: "overview", label: "Ahora", icon: <Icons.Activity /> },
+  { id: "overview", label: "Ahora", icon: <Icons.Home /> },
+  { id: "activity", label: "Actividad", icon: <Icons.Activity /> },
+  { id: "health", label: "Salud", icon: <Icons.Heart /> },
   { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
-  { id: "notes", label: "Notas", icon: <Icons.StickyNote /> },
-  { id: "audit", label: "Registro", icon: <Icons.History /> },
+  { id: "more", label: "Más", icon: <Icons.MoreHorizontal /> },
 ];
 
 const ACTION_GROUPS = [
@@ -361,28 +362,21 @@ export default function App() {
               activeTimers={timer.activeTimers}
               elapsedMap={timer.elapsedMap}
             />
-            <div className="overview-room-grid">
-              <RoomCard
-                childId={data.child?.id}
-                status={data.roomStatus}
-                onToggleLight={() => data.toggleRoomLight(data.child?.id)}
-              />
-              <CalendarCard
-                status={data.calendarStatus}
-                onAddEvent={() => setModal({ type: "calendar" })}
-                onOpenCalendar={() => setModal({ type: "calendar-manager" })}
-                onEditEvent={(event) => setModal({ type: "calendar", entry: event })}
-                onDeleteEvent={(event) => setModal({ type: "calendar-delete", entry: event })}
-              />
+            <MedicationCard
+              medications={data.medications}
+              childId={data.child?.id}
+              onCreateScheduled={handleFormDone}
+              onChanged={data.refetch}
+              compact
+              onOpenFull={() => setActiveTab("health")}
+            />
+            <div className="now-quick-hint">
+              <span>Usa <strong>+</strong> para registrar tomas, pañales, sueño, medicación o medidas.</span>
+              <button type="button" onClick={() => setActiveTab("activity")}>Ver actividad de hoy</button>
             </div>
-          <MedicationCard
-            medications={data.medications}
-            childId={data.child?.id}
-            onEditEntry={(type, entry, prefill, extra = {}) => setModal({ type, entry, prefill, ...extra })}
-            onAdd={() => setModal({ type: "medication" })}
-            onCreateScheduled={handleFormDone}
-            onChanged={data.refetch}
-          />
+          </>
+        )}
+        {activeTab === "activity" && (
           <OverviewTab
             feedings={data.feedings}
             weeklyFeedings={data.weeklyFeedings}
@@ -393,7 +387,39 @@ export default function App() {
             weeklyTummyTimes={data.weeklyTummyTimes}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
-          </>
+        )}
+        {activeTab === "health" && (
+          <div className="health-tab fade-in">
+            <div className="section-title-row">
+              <div><span className="eyebrow">SALUD</span><h2>Medicación, temperatura y citas</h2></div>
+            </div>
+            <MedicationCard
+              medications={data.medications}
+              childId={data.child?.id}
+              onEditEntry={(type, entry, prefill, extra = {}) => setModal({ type, entry, prefill, ...extra })}
+              onAdd={() => setModal({ type: "medication" })}
+              onCreateScheduled={handleFormDone}
+              onChanged={data.refetch}
+            />
+            <div className="health-grid">
+              <HealthSummary
+                temperatures={data.temperatures}
+                onAddTemperature={() => setModal({ type: "temp" })}
+              />
+              <CalendarCard
+                status={data.calendarStatus}
+                onAddEvent={() => setModal({ type: "calendar" })}
+                onOpenCalendar={() => setModal({ type: "calendar-manager" })}
+                onEditEvent={(event) => setModal({ type: "calendar", entry: event })}
+                onDeleteEvent={(event) => setModal({ type: "calendar-delete", entry: event })}
+              />
+            </div>
+            <RoomCard
+              childId={data.child?.id}
+              status={data.roomStatus}
+              onToggleLight={() => data.toggleRoomLight(data.child?.id)}
+            />
+          </div>
         )}
         {activeTab === "growth" && (
           <GrowthTab
@@ -404,14 +430,14 @@ export default function App() {
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
         )}
-        {activeTab === "notes" && (
-          <NotesTab
+        {activeTab === "more" && (
+          <MoreTab
             notes={data.notes}
+            auditEntries={data.auditEntries}
+            currentUser={data.currentUser}
             onEditEntry={(type, entry) => setModal({ type, entry })}
+            onOpenSettings={() => setModal({ type: "settings" })}
           />
-        )}
-        {activeTab === "audit" && (
-          <AuditTab entries={data.auditEntries} currentUser={data.currentUser} />
         )}
       </main>
 
