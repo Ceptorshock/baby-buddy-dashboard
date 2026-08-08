@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.12-es18.12"
+version: "2.0.13-es18.13"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con historial editable de compras de pañales, inventario Grocy, actividad actual, avisos globales, temperatura, medicación y calendario."
+description: "Panel en castellano para Baby Buddy con inventario e historial de pañales en pestañas, Grocy, actividad actual, avisos globales, temperatura, medicación y calendario."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"
