@@ -1249,3 +1249,56 @@ body {
   .diaper-purchase-actions { grid-column:1 / -1; justify-content:flex-end; }
   .diaper-purchase-editor-grid { grid-template-columns:1fr; }
 }
+
+/* ES18.13: inventario e historial de pañales en pestañas */
+.diaper-modal-tabs {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+  margin:12px 0 14px;
+  padding:4px;
+  border:1px solid var(--border);
+  border-radius:13px;
+  background:var(--bg);
+}
+.diaper-modal-tabs button {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:9px 10px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  color:var(--text-muted);
+  font:800 11px var(--font);
+  cursor:pointer;
+  transition:background .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.diaper-modal-tabs button svg { width:16px; height:16px; flex:0 0 auto; }
+.diaper-modal-tabs button small {
+  min-width:18px;
+  padding:2px 5px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  color:var(--text-dim);
+  font:800 8px var(--mono);
+}
+.diaper-modal-tabs button.active {
+  background:var(--card-bg);
+  color:var(--text);
+  box-shadow:0 2px 9px rgba(0,0,0,.2);
+}
+.diaper-modal-tabs button.active svg { color:#fbbf24; }
+.diaper-modal-tabs button.active small { background:#fbbf2414; color:#fbbf24; }
+.diaper-tab-panel { animation:fadeIn .14s ease; }
+.diaper-purchase-history.diaper-purchase-history-tab {
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
+}
+@media (max-width:420px) {
+  .diaper-modal-tabs button { padding:9px 6px; gap:5px; font-size:10px; }
+  .diaper-modal-tabs button small { font-size:7px; }
+}

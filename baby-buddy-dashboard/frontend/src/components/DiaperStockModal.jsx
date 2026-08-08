@@ -23,6 +23,7 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [view, setView] = useState("stock");
   const [editor, setEditor] = useState(null);
   const [value, setValue] = useState("");
   const [purchaseEditor, setPurchaseEditor] = useState(null);
@@ -47,6 +48,13 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
 
   const items = useMemo(() => payload?.items || [], [payload]);
   const purchases = useMemo(() => history?.items || [], [history]);
+
+  const changeView = (next) => {
+    setView(next);
+    setEditor(null);
+    setPurchaseEditor(null);
+    setError("");
+  };
 
   const openEditor = (mode, item) => {
     setError("");
@@ -128,90 +136,126 @@ export default function DiaperStockModal({ activeSize, onChanged, onClose }) {
   };
 
   return (
-    <Modal title="Stock de pañales" onClose={onClose} maxWidth={620}>
+    <Modal title="Pañales" onClose={onClose} maxWidth={620}>
       <div className="diaper-stock-intro">
         <span className="diaper-stock-intro-icon"><Icons.Diaper /></span>
         <div>
           <strong>Inventario de Grocy</strong>
-          <span>Consulta todas las tallas, apunta compras y corrige errores sin salir de la app.</span>
+          <span>Consulta existencias o revisa las últimas compras sin salir de la app.</span>
         </div>
-        <button className="diaper-stock-refresh" type="button" onClick={load} disabled={loading || busy} title="Actualizar stock"><Icons.Activity /></button>
+        <button className="diaper-stock-refresh" type="button" onClick={load} disabled={loading || busy} title="Actualizar"><Icons.Activity /></button>
+      </div>
+
+      <div className="diaper-modal-tabs" role="tablist" aria-label="Pañales e historial">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "stock"}
+          className={view === "stock" ? "active" : ""}
+          onClick={() => changeView("stock")}
+        >
+          <Icons.Diaper />
+          <span>Pañales</span>
+          {items.length > 0 && <small>{items.length} tallas</small>}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "history"}
+          className={view === "history" ? "active" : ""}
+          onClick={() => changeView("history")}
+        >
+          <Icons.History />
+          <span>Historial</span>
+          {purchases.length > 0 && <small>{purchases.length}</small>}
+        </button>
       </div>
 
       {error && <div className="form-error">{error}</div>}
-      {loading && <div className="diaper-stock-empty">Consultando existencias…</div>}
-      {!loading && payload && !payload.available && (
-        <div className="form-warning">No se pudo leer <strong>{payload.source || "el sensor de stock de Grocy"}</strong>{payload.error ? `: ${payload.error}` : "."}</div>
-      )}
+      {loading && <div className="diaper-stock-empty">Consultando Grocy…</div>}
 
-      {!loading && items.length > 0 && (
-        <div className="diaper-stock-list">
-          {items.map((item) => {
-            const active = String(item.size) === String(activeSize || "");
-            return (
-              <div className={`diaper-stock-row${active ? " diaper-stock-row-active" : ""}`} key={item.product_id}>
-                <div className="diaper-stock-main">
-                  <div className="diaper-stock-size-line"><strong>{item.size}</strong>{active && <span className="diaper-stock-active-badge">EN USO</span>}</div>
-                  <span className="diaper-stock-product">Producto Grocy #{item.product_id}</span>
-                </div>
-                <div className="diaper-stock-count"><strong>{fmtStock(item.stock)}</strong><span>uds</span></div>
-                <div className="diaper-stock-actions">
-                  <button type="button" className="diaper-stock-buy" onClick={() => openEditor("add", item)} disabled={busy || !item.available || !payload.can_add}><Icons.Plus /> <span>Compra</span></button>
-                  <button type="button" className="diaper-stock-adjust" onClick={() => openEditor("set", item)} disabled={busy || !item.available || (!payload.can_add && !payload.can_remove)} title="Corregir stock"><Icons.Pencil /></button>
-                </div>
+      {!loading && view === "stock" && (
+        <div className="diaper-tab-panel" role="tabpanel">
+          {payload && !payload.available && (
+            <div className="form-warning">No se pudo leer <strong>{payload.source || "el sensor de stock de Grocy"}</strong>{payload.error ? `: ${payload.error}` : "."}</div>
+          )}
+
+          {items.length > 0 && (
+            <div className="diaper-stock-list">
+              {items.map((item) => {
+                const active = String(item.size) === String(activeSize || "");
+                return (
+                  <div className={`diaper-stock-row${active ? " diaper-stock-row-active" : ""}`} key={item.product_id}>
+                    <div className="diaper-stock-main">
+                      <div className="diaper-stock-size-line"><strong>{item.size}</strong>{active && <span className="diaper-stock-active-badge">EN USO</span>}</div>
+                      <span className="diaper-stock-product">Producto Grocy #{item.product_id}</span>
+                    </div>
+                    <div className="diaper-stock-count"><strong>{fmtStock(item.stock)}</strong><span>uds</span></div>
+                    <div className="diaper-stock-actions">
+                      <button type="button" className="diaper-stock-buy" onClick={() => openEditor("add", item)} disabled={busy || !item.available || !payload?.can_add}><Icons.Plus /> <span>Compra</span></button>
+                      <button type="button" className="diaper-stock-adjust" onClick={() => openEditor("set", item)} disabled={busy || !item.available || (!payload?.can_add && !payload?.can_remove)} title="Corregir stock"><Icons.Pencil /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {editor && (
+            <div className="diaper-stock-editor">
+              <div><strong>{editor.mode === "add" ? `Añadir compra · ${editor.item.size}` : `Ajustar total · ${editor.item.size}`}</strong><span>{editor.mode === "add" ? `Ahora hay ${fmtStock(editor.item.stock)}. Introduce cuántos pañales acabáis de comprar.` : "Úsalo para corregir el inventario si el número real no coincide con Grocy."}</span></div>
+              <div className="diaper-stock-editor-controls">
+                <input type="number" min="0" step="1" inputMode="numeric" value={value} autoFocus disabled={busy} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+                <button type="button" onClick={save} disabled={busy}>{busy ? "Guardando…" : editor.mode === "add" ? "Añadir" : "Guardar"}</button>
+                <button type="button" className="diaper-stock-cancel" onClick={() => setEditor(null)} disabled={busy}>Cancelar</button>
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          <div className="diaper-stock-footnote">El inventario se modifica directamente en Grocy.</div>
         </div>
       )}
 
-      {editor && (
-        <div className="diaper-stock-editor">
-          <div><strong>{editor.mode === "add" ? `Añadir compra · ${editor.item.size}` : `Ajustar total · ${editor.item.size}`}</strong><span>{editor.mode === "add" ? `Ahora hay ${fmtStock(editor.item.stock)}. Introduce cuántos pañales acabáis de comprar.` : "Úsalo para corregir el inventario si el número real no coincide con Grocy."}</span></div>
-          <div className="diaper-stock-editor-controls">
-            <input type="number" min="0" step="1" inputMode="numeric" value={value} autoFocus disabled={busy} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
-            <button type="button" onClick={save} disabled={busy}>{busy ? "Guardando…" : editor.mode === "add" ? "Añadir" : "Guardar"}</button>
-            <button type="button" className="diaper-stock-cancel" onClick={() => setEditor(null)} disabled={busy}>Cancelar</button>
-          </div>
-        </div>
-      )}
-
-      <div className="diaper-purchase-history">
-        <div className="diaper-purchase-history-title">
-          <div><Icons.History /><div><strong>Últimas compras</strong><span>{history?.source_label || "Historial"}</span></div></div>
-          {history?.grocy_configured && !history?.grocy_direct && <span className="diaper-history-warning">Grocy no responde</span>}
-        </div>
-        {history?.error && <div className="diaper-history-note">No se pudo leer el diario de Grocy; se muestran las compras hechas desde esta app.</div>}
-        {!history?.grocy_configured && <div className="diaper-history-note">Para incluir también compras añadidas directamente en Grocy, configura <strong>grocy_url</strong> y <strong>grocy_api_key</strong> en la app.</div>}
-        {purchases.length === 0 ? <div className="diaper-stock-empty">Todavía no hay compras registradas.</div> : (
-          <div className="diaper-purchase-list">
-            {purchases.map((purchase) => (
-              <div className="diaper-purchase-row" key={purchase.key}>
-                <div className="diaper-purchase-date"><strong>{fmtDate(purchase.timestamp)}</strong><span>{purchase.source_label}{purchase.corrected ? " · corregida" : ""}</span></div>
-                <div className="diaper-purchase-desc"><strong>+{fmtStock(purchase.amount)} uds</strong><span>{purchase.size}</span></div>
-                <div className="diaper-purchase-actions">
-                  <button type="button" onClick={() => editPurchase(purchase)} disabled={busy} title="Corregir talla o cantidad"><Icons.Pencil /></button>
-                  <button type="button" className="danger" onClick={() => removePurchase(purchase)} disabled={busy} title="Anular compra"><Icons.Trash /></button>
-                </div>
+      {!loading && view === "history" && (
+        <div className="diaper-tab-panel" role="tabpanel">
+          <div className="diaper-purchase-history diaper-purchase-history-tab">
+            <div className="diaper-purchase-history-title">
+              <div><Icons.History /><div><strong>Últimas compras</strong><span>{history?.source_label || "Historial"}</span></div></div>
+              {history?.grocy_configured && !history?.grocy_direct && <span className="diaper-history-warning">Grocy no responde</span>}
+            </div>
+            {history?.error && <div className="diaper-history-note">No se pudo leer el diario de Grocy; se muestran las compras hechas desde esta app.</div>}
+            {!history?.grocy_configured && <div className="diaper-history-note">Para incluir también compras añadidas directamente en Grocy, configura <strong>grocy_url</strong> y <strong>grocy_api_key</strong> en la app.</div>}
+            {purchases.length === 0 ? <div className="diaper-stock-empty">Todavía no hay compras registradas.</div> : (
+              <div className="diaper-purchase-list">
+                {purchases.map((purchase) => (
+                  <div className="diaper-purchase-row" key={purchase.key}>
+                    <div className="diaper-purchase-date"><strong>{fmtDate(purchase.timestamp)}</strong><span>{purchase.source_label}{purchase.corrected ? " · corregida" : ""}</span></div>
+                    <div className="diaper-purchase-desc"><strong>+{fmtStock(purchase.amount)} uds</strong><span>{purchase.size}</span></div>
+                    <div className="diaper-purchase-actions">
+                      <button type="button" onClick={() => editPurchase(purchase)} disabled={busy} title="Corregir talla o cantidad"><Icons.Pencil /></button>
+                      <button type="button" className="danger" onClick={() => removePurchase(purchase)} disabled={busy} title="Anular compra"><Icons.Trash /></button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
 
-      {purchaseEditor && (
-        <div className="diaper-stock-editor diaper-purchase-editor">
-          <div><strong>Corregir compra</strong><span>Cambiar la talla o la cantidad ajustará automáticamente el stock actual de Grocy.</span></div>
-          <div className="diaper-purchase-editor-grid">
-            <select value={purchaseSize} disabled={busy} onChange={(e) => setPurchaseSize(e.target.value)}>{items.map((item) => <option key={item.product_id} value={item.product_id}>{item.size}</option>)}</select>
-            <input type="number" min="1" step="1" inputMode="numeric" value={purchaseAmount} disabled={busy} onChange={(e) => setPurchaseAmount(e.target.value)} />
-            <button type="button" onClick={savePurchaseCorrection} disabled={busy}>{busy ? "Guardando…" : "Guardar corrección"}</button>
-            <button type="button" className="diaper-stock-cancel" onClick={() => setPurchaseEditor(null)} disabled={busy}>Cancelar</button>
-          </div>
+          {purchaseEditor && (
+            <div className="diaper-stock-editor diaper-purchase-editor">
+              <div><strong>Corregir compra</strong><span>Cambiar la talla o la cantidad ajustará automáticamente el stock actual de Grocy.</span></div>
+              <div className="diaper-purchase-editor-grid">
+                <select value={purchaseSize} disabled={busy} onChange={(e) => setPurchaseSize(e.target.value)}>{items.map((item) => <option key={item.product_id} value={item.product_id}>{item.size}</option>)}</select>
+                <input type="number" min="1" step="1" inputMode="numeric" value={purchaseAmount} disabled={busy} onChange={(e) => setPurchaseAmount(e.target.value)} />
+                <button type="button" onClick={savePurchaseCorrection} disabled={busy}>{busy ? "Guardando…" : "Guardar corrección"}</button>
+                <button type="button" className="diaper-stock-cancel" onClick={() => setPurchaseEditor(null)} disabled={busy}>Cancelar</button>
+              </div>
+            </div>
+          )}
+
+          <div className="diaper-stock-footnote">Corregir o anular una compra crea el ajuste necesario para que el stock de Grocy siga cuadrando.</div>
         </div>
       )}
-
-      <div className="diaper-stock-footnote">El inventario siempre se modifica en Grocy. Corregir o anular una compra crea el ajuste necesario para que el stock siga cuadrando.</div>
     </Modal>
   );
 }
