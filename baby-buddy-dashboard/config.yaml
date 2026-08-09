@@ -1,7 +1,7 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.14-es18.14"
+version: "2.0.15-es18.15"
 slug: "baby-buddy-dashboard-es"
-description: "Panel en castellano para Baby Buddy con resúmenes diarios e historial, relevo activable, recordatorios de temporizadores, medicación visual, pañales/Grocy, temperatura y calendario."
+description: "Panel en castellano para Baby Buddy con medicación agrupada por momentos del día, resúmenes diarios legibles, relevo activable, recordatorios, pañales/Grocy con talla temporal, temperatura y calendario."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
 init: false
 homeassistant: "2026.4.0"

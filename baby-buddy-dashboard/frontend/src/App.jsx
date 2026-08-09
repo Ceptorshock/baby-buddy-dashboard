@@ -467,7 +467,6 @@ export default function App() {
             auditEntries={data.auditEntries}
             currentUser={data.currentUser}
             onEditEntry={(type, entry) => setModal({ type, entry })}
-            onOpenSettings={() => setModal({ type: "settings" })}
           />
         )}
       </main>
@@ -588,7 +587,6 @@ export default function App() {
           childId={data.child?.id}
           entry={modal.entry}
           diaperSize={data.diaperSize}
-          onDiaperSizeChange={(option) => data.setDiaperSize(data.child?.id, option)}
           onDone={handleFormDone}
           onClose={closeModal}
         />

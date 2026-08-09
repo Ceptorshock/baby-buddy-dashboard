@@ -120,35 +120,39 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
     [medications, regimenMap, clock, advanceMinutes],
   );
 
+  const createScheduledDose = async ({ entry, regimen, scheduleType, nextAt }, administeredNow = new Date()) => {
+    const data = {
+      child: childId,
+      name: entry.name,
+      time: localTimestamp(administeredNow),
+    };
+    if (scheduleType === "interval" && regimen.next_dose_interval) data.next_dose_interval = regimen.next_dose_interval;
+    if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") data.dosage = entry.dosage;
+    if (entry.dosage_unit) data.dosage_unit = entry.dosage_unit;
+    if (entry.notes) data.notes = entry.notes;
+
+    const created = await api.createMedication(data);
+    await api.setMedicationRegimen(childId, {
+      ...regimen,
+      name: entry.name,
+      dosage: entry.dosage ?? null,
+      dosage_unit: entry.dosage_unit || "",
+      schedule_type: scheduleType,
+      next_dose_interval: scheduleType === "interval" ? (regimen.next_dose_interval || "") : "",
+      slots: scheduleType === "daily_slots" ? (regimen.slots || []) : [],
+      last_scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : (regimen.last_scheduled_for || null),
+      active: true,
+    }).catch(() => null);
+    return created;
+  };
+
   const registerScheduledDose = async ({ entry, regimen, scheduleType, nextAt }) => {
     if (!childId || !entry) return;
     setBusyId(`dose:${entry.id}`);
     setMessage("");
     try {
       const administeredNow = new Date();
-      const data = {
-        child: childId,
-        name: entry.name,
-        time: localTimestamp(administeredNow),
-      };
-      if (scheduleType === "interval" && regimen.next_dose_interval) data.next_dose_interval = regimen.next_dose_interval;
-      if (entry.dosage !== null && entry.dosage !== undefined && entry.dosage !== "") data.dosage = entry.dosage;
-      if (entry.dosage_unit) data.dosage_unit = entry.dosage_unit;
-      if (entry.notes) data.notes = entry.notes;
-
-      const created = await api.createMedication(data);
-      await api.setMedicationRegimen(childId, {
-        ...regimen,
-        name: entry.name,
-        dosage: entry.dosage ?? null,
-        dosage_unit: entry.dosage_unit || "",
-        schedule_type: scheduleType,
-        next_dose_interval: scheduleType === "interval" ? (regimen.next_dose_interval || "") : "",
-        slots: scheduleType === "daily_slots" ? (regimen.slots || []) : [],
-        last_scheduled_for: scheduleType === "daily_slots" && nextAt ? nextAt.toISOString() : (regimen.last_scheduled_for || null),
-        active: true,
-      }).catch(() => null);
-
+      const created = await createScheduledDose({ entry, regimen, scheduleType, nextAt }, administeredNow);
       const suffix = scheduleType === "daily_slots" && nextAt
         ? ` Se ha marcado como realizada la franja prevista de las ${formatTime(nextAt)}.`
         : scheduleType === "interval"
@@ -159,6 +163,38 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
       await onChanged?.();
     } catch (error) {
       setMessage(`No se pudo registrar la dosis: ${error.message}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const registerSlotDoses = async ({ group, items }) => {
+    if (!childId || !items?.length) return;
+    setBusyId(`slot:${group.key}`);
+    setMessage("");
+    try {
+      const administeredNow = new Date();
+      const completed = [];
+      const failed = [];
+      for (const row of items) {
+        try {
+          await createScheduledDose({
+            entry: row.item.entry,
+            regimen: row.item.regimen,
+            scheduleType: "daily_slots",
+            nextAt: row.scheduled,
+          }, administeredNow);
+          completed.push(row.item.entry.name);
+        } catch (error) {
+          failed.push(`${row.item.entry.name}: ${error.message}`);
+        }
+      }
+      if (completed.length) {
+        setMessage(`${group.label}: ${completed.length} medicamento${completed.length === 1 ? "" : "s"} registrado${completed.length === 1 ? "" : "s"} a las ${formatTime(administeredNow)}.${failed.length ? ` No se pudieron registrar ${failed.length}.` : ""}`);
+        await onChanged?.();
+      } else if (failed.length) {
+        setMessage(`No se pudo registrar la medicación de ${group.label}: ${failed[0]}`);
+      }
     } finally {
       setBusyId(null);
     }
@@ -229,8 +265,15 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
 
   return (
     <div className="fade-in fade-in-2">
-      <SectionCard title="Medicamentos" icon={<Icons.Pill />} color={colors.medication}>
-        <MedicationTodayStrip regimens={regimens} medications={medications} now={clock} />
+      <SectionCard
+        title="Medicamentos"
+        icon={<Icons.Pill />}
+        color={colors.medication}
+        headerAction={onAdd ? (
+          <button type="button" className="section-header-action" onClick={onAdd}><Icons.Plus /> Registrar / pauta</button>
+        ) : null}
+      >
+        <MedicationTodayStrip regimens={regimens} medications={medications} now={clock} busyId={busyId} onRegisterSlot={registerSlotDoses} />
         {regimens.length > 0 && (
           <div className="medication-regimens">
             <div className="medication-regimens-title">Pautas activas</div>
@@ -314,7 +357,6 @@ export default function MedicationCard({ medications = [], childId, onEditEntry,
             ))}
           </div>
         ) : <div className="empty-state-small">Todavía no hay medicamentos registrados</div>}
-        <button className="section-action-btn" onClick={onAdd}><Icons.Plus /> Registrar medicamento / iniciar pauta</button>
       </SectionCard>
     </div>
   );

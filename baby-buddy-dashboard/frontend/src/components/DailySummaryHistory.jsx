@@ -26,7 +26,6 @@ export default function DailySummaryHistory({ data }) {
   const [selected, setSelected] = useState(null);
   const today = summaries[0];
   const yesterday = summaries[1];
-  const selectedItem = selected ? summaries.find((item) => item.dateKey === selected) : null;
 
   return (
     <div className="daily-summary-history-wrap fade-in">
@@ -40,13 +39,27 @@ export default function DailySummaryHistory({ data }) {
         {section === "yesterday" && <><h4 className="daily-summary-date">{summaryDateLabel(yesterday.dateKey, true)}</h4><SummaryDetail item={yesterday} units={units} /></>}
         {section === "history" && (
           <div className="daily-summary-history-list">
-            {summaries.map((item) => (
-              <button key={item.dateKey} type="button" className={`daily-summary-history-row${selected === item.dateKey ? " selected" : ""}`} onClick={() => setSelected(selected === item.dateKey ? null : item.dateKey)}>
-                <strong>{summaryDateLabel(item.dateKey)}</strong>
-                {hasSummaryData(item) ? <span>🍼 {item.feedings} · 🧷 {item.diapers} · 😴 {item.sleepHours.toFixed(1)}h · 💊 {item.medications}{item.temperatureMax !== null ? ` · 🌡️ ${item.temperatureMax.toFixed(1)}°` : ""}</span> : <span>Sin registros</span>}
-              </button>
-            ))}
-            {selectedItem && <div className="daily-summary-selected"><h4>{summaryDateLabel(selectedItem.dateKey, true)}</h4><SummaryDetail item={selectedItem} units={units} /></div>}
+            {summaries.map((item) => {
+              const isSelected = selected === item.dateKey;
+              return (
+                <div className={`daily-summary-history-entry${isSelected ? " selected" : ""}`} key={item.dateKey}>
+                  <button
+                    type="button"
+                    className={`daily-summary-history-row${isSelected ? " selected" : ""}`}
+                    onClick={() => setSelected(isSelected ? null : item.dateKey)}
+                  >
+                    <strong>{summaryDateLabel(item.dateKey)}</strong>
+                    {hasSummaryData(item) ? <span>🍼 {item.feedings} · 🧷 {item.diapers} · 😴 {item.sleepHours.toFixed(1)}h · 💊 {item.medications}{item.temperatureMax !== null ? ` · 🌡️ ${item.temperatureMax.toFixed(1)}°` : ""}</span> : <span>Sin registros</span>}
+                  </button>
+                  {isSelected && (
+                    <div className="daily-summary-selected-inline">
+                      <h4>{summaryDateLabel(item.dateKey, true)}</h4>
+                      <SummaryDetail item={item} units={units} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </SectionCard>

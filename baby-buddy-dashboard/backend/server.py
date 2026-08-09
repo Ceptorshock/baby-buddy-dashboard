@@ -1477,8 +1477,9 @@ async def _consume_diaper_for_entry(payload: dict, result: dict) -> dict:
 
     size_entity = DIAPER_SIZE_ENTITIES.get(child_id, "")
     processed_entity = DIAPER_LAST_PROCESSED_ENTITIES.get(child_id, "")
-    size_state = await _safe_state(size_entity) if size_entity else None
-    size = str((size_state or {}).get("state") or "").strip()
+    requested_size = str(payload.get("_dashboard_diaper_size") or "").strip()
+    size_state = await _safe_state(size_entity) if size_entity and not requested_size else None
+    size = requested_size or str((size_state or {}).get("state") or "").strip()
     product_id = DIAPER_PRODUCT_IDS.get(size)
     if not product_id:
         await _call_ha_service(
@@ -3593,6 +3594,15 @@ async def proxy_baby_buddy(path: str, request: Request):
                     request_payload = decoded
             except (json.JSONDecodeError, UnicodeDecodeError):
                 request_payload = {}
+
+    # Metadata local del dashboard: permite usar una talla distinta solo para
+    # un cambio de pañal sin modificar la talla habitual de Home Assistant.
+    # Baby Buddy no conoce este campo, así que se elimina únicamente del body
+    # que se reenvía, conservándolo en request_payload para el descuento Grocy.
+    if request.method == "POST" and resource == "changes" and request_payload.get("_dashboard_diaper_size"):
+        forwarded_payload = dict(request_payload)
+        forwarded_payload.pop("_dashboard_diaper_size", None)
+        body = json.dumps(forwarded_payload).encode("utf-8")
 
     if request.method in ("PATCH", "PUT", "DELETE") and entry_id:
         try:
