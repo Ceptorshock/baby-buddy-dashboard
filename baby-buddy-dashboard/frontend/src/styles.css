@@ -1437,3 +1437,138 @@ body {
 .handoff-history > div > div { min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
 .handoff-history small { max-width:280px; color:var(--text-dim); font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media (max-width:560px) { .handoff-note > div { flex-direction:column; } .handoff-note button { width:100%; } }
+
+/* ES18.15: medicación agrupada, resúmenes legibles, ajustes por pestañas y talla temporal */
+.diaper-stock-header-btn,
+.diaper-stock-header-btn:hover {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--card-bg);
+}
+.diaper-stock-header-btn:hover { border-color: var(--text-dim); color: var(--text-muted); }
+
+.section-header-action {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:7px 10px;
+  border:1px solid #f59e0b45;
+  border-radius:9px;
+  background:#f59e0b12;
+  color:#fbbf24;
+  font:800 10px var(--font);
+  cursor:pointer;
+  white-space:nowrap;
+}
+.section-header-action svg { width:14px; height:14px; }
+.section-header-action:hover { background:#f59e0b1d; border-color:#f59e0b70; }
+
+/* Resúmenes diarios: tipografía de lectura normal y detalle desplegado junto al día. */
+.daily-summary-tabs button { font-size:12px; padding:10px 8px; }
+.daily-summary-date { font-size:14px; margin-bottom:12px; }
+.daily-summary-detail { gap:9px; }
+.daily-summary-detail > div { padding:12px 13px; }
+.daily-summary-detail span { font-size:12px; }
+.daily-summary-detail strong { font-size:12px; line-height:1.35; }
+.daily-summary-history-list { max-height:none; overflow:visible; gap:8px; padding-right:0; }
+.daily-summary-history-entry { border-radius:12px; }
+.daily-summary-history-row { grid-template-columns:125px minmax(0,1fr); padding:12px 13px; gap:12px; }
+.daily-summary-history-row strong { font-size:12px; }
+.daily-summary-history-row span { font-size:11px; }
+.daily-summary-selected-inline {
+  margin-top:6px;
+  padding:13px;
+  border:1px solid #60a5fa45;
+  border-radius:12px;
+  background:var(--bg);
+  box-shadow:0 4px 14px rgba(0,0,0,.16);
+}
+.daily-summary-selected-inline h4 { margin:0 0 11px; text-transform:capitalize; font-size:13px; color:var(--text); }
+
+/* Medicación de hoy agrupada por desayuno/comida/merienda/cena. */
+.medication-today { display:flex; flex-direction:column; gap:12px; margin-bottom:18px; }
+.medication-today-title { display:flex; flex-direction:column; gap:3px; }
+.medication-today-title strong { font-size:14px; color:var(--text); }
+.medication-today-title span { font-size:10px; color:var(--text-dim); line-height:1.45; }
+.medication-slot-groups { display:flex; flex-direction:column; gap:10px; }
+.medication-slot-group {
+  padding:12px;
+  border:1px solid #f59e0b35;
+  border-radius:13px;
+  background:#f59e0b08;
+}
+.medication-slot-group.is-complete { border-color:#22c55e35; background:#22c55e08; }
+.medication-slot-group.is-overdue { border-color:#ef444445; background:#ef444408; }
+.medication-slot-group-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.medication-slot-group-head > div { display:flex; align-items:baseline; gap:10px; min-width:0; }
+.medication-slot-group-head strong { font-size:18px; font-weight:900; color:var(--text); letter-spacing:-.02em; }
+.medication-slot-group-head span { font:900 17px var(--mono); color:#fbbf24; }
+.medication-slot-group.is-complete .medication-slot-group-head span { color:#86efac; }
+.medication-slot-group-head small { flex:0 0 auto; font-size:10px; font-weight:800; color:var(--text-muted); }
+.medication-slot-med-list { display:flex; flex-direction:column; gap:6px; }
+.medication-slot-med {
+  display:grid;
+  grid-template-columns:20px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  padding:9px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--card-bg);
+  cursor:pointer;
+}
+.medication-slot-med > input { position:absolute; opacity:0; pointer-events:none; }
+.medication-slot-med-check {
+  width:19px; height:19px; display:flex; align-items:center; justify-content:center;
+  border:1px solid #64748b80; border-radius:6px; color:#111; font-size:12px; font-weight:900;
+}
+.medication-slot-med:not(.is-done):has(input:checked) .medication-slot-med-check { background:#f59e0b; border-color:#f59e0b; }
+.medication-slot-med:not(.is-done):has(input:checked) .medication-slot-med-check::after { content:"✓"; }
+.medication-slot-med.is-done { opacity:.8; cursor:default; border-color:#22c55e35; background:#22c55e08; }
+.medication-slot-med.is-done .medication-slot-med-check { background:#22c55e; border-color:#22c55e; }
+.medication-slot-med-name { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.medication-slot-med-name strong { font-size:12px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.medication-slot-med-name small { font-size:10px; color:var(--text-dim); }
+.medication-slot-med-status { font:800 10px var(--mono); color:var(--text-muted); white-space:nowrap; }
+.medication-slot-med.is-done .medication-slot-med-status { color:#86efac; }
+.medication-slot-give-btn {
+  width:100%; margin-top:9px; padding:10px 12px; border:0; border-radius:10px;
+  background:#f59e0b; color:#111; font:900 12px var(--font); cursor:pointer;
+}
+.medication-slot-give-btn:disabled { opacity:.45; cursor:not-allowed; }
+.medication-other-today { display:flex; flex-direction:column; gap:7px; padding-top:3px; }
+.medication-other-today > strong { font-size:11px; color:var(--text-muted); }
+
+/* Ajustes divididos en tres pestañas internas. */
+.settings-tabs {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:6px;
+  margin-bottom:16px;
+  padding:4px;
+  border:1px solid var(--border);
+  border-radius:13px;
+  background:var(--bg);
+}
+.settings-tabs button {
+  min-width:0; display:flex; align-items:center; justify-content:center; gap:7px;
+  padding:10px 8px; border:0; border-radius:9px; background:transparent;
+  color:var(--text-muted); font:800 11px var(--font); cursor:pointer;
+}
+.settings-tabs button svg { width:16px; height:16px; }
+.settings-tabs button.active { background:var(--card-bg); color:var(--text); box-shadow:0 2px 9px rgba(0,0,0,.2); }
+.settings-tabs button.active svg { color:#fbbf24; }
+.settings-tab-panel { animation:fadeIn .14s ease; }
+
+@media (max-width:700px) {
+  .section-header-action { padding:7px 8px; font-size:9px; }
+  .daily-summary-history-row { grid-template-columns:95px minmax(0,1fr); }
+  .daily-summary-history-row span { white-space:normal; line-height:1.35; }
+  .medication-slot-group-head { align-items:flex-start; }
+  .medication-slot-group-head > div { flex-direction:column; gap:1px; }
+  .medication-slot-group-head strong { font-size:17px; }
+  .medication-slot-group-head span { font-size:16px; }
+  .medication-slot-med { grid-template-columns:20px minmax(0,1fr); }
+  .medication-slot-med-status { grid-column:2; }
+  .settings-tabs button { font-size:10px; gap:5px; padding:10px 5px; }
+}

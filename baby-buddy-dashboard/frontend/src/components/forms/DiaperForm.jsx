@@ -16,7 +16,7 @@ const COLORS = [
   { value: "yellow", label: "Amarillo" },
 ];
 
-export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeChange, onDone, onClose, preset }) {
+export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose, preset }) {
   const isEdit = !!entry;
   const [time, setTime] = useState(entry?.time ? toLocalDatetime(new Date(entry.time)) : toLocalDatetime(new Date()));
   const [wet, setWet] = useState(entry ? entry.wet : (preset === "wet" || preset === "both"));
@@ -30,12 +30,6 @@ export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeCha
     e.preventDefault();
     setSaving(true);
     try {
-      // Update the active Home Assistant size before creating the Baby Buddy
-      // change, so the Grocy automation consumes the correct product.
-      if (!isEdit && selectedSize && selectedSize !== diaperSize?.state && onDiaperSizeChange) {
-        await onDiaperSizeChange(selectedSize);
-      }
-
       const data = { wet, solid, time: `${time}:00` };
       if (color) data.color = color;
       if (notes.trim()) data.notes = notes.trim();
@@ -43,6 +37,9 @@ export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeCha
         await api.updateChange(entry.id, data);
       } else {
         data.child = childId;
+        // Solo se usa para este cambio. El backend lo elimina antes de enviarlo a
+        // Baby Buddy y lo usa para descontar la talla correcta en Grocy.
+        if (selectedSize) data._dashboard_diaper_size = selectedSize;
         const created = await api.createChange(data);
         const grocy = created?._grocy;
         onDone({
@@ -74,15 +71,14 @@ export default function DiaperForm({ childId, entry, diaperSize, onDiaperSizeCha
           />
         </FormField>
         {!isEdit && diaperSize?.configured && diaperSize.available && (
-          <FormField label="Talla activa">
+          <FormField label="Talla para este cambio">
             <FormSelect
               options={(diaperSize.options || []).map((option) => ({ value: option, label: option }))}
               value={selectedSize}
               onChange={(e) => setSelectedSize(e.target.value)}
-              disabled={false}
             />
-            <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>
-              Esta talla se usa para descontar una unidad del producto correspondiente en Grocy.
+            <div className="form-help" style={{ marginTop: 6 }}>
+              Solo afecta a este pañal y al descuento de Grocy. <strong>No cambia la talla habitual</strong>; esa se cambia únicamente junto al nombre del bebé.
             </div>
           </FormField>
         )}
