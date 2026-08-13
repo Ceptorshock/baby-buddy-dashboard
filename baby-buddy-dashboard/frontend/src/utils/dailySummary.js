@@ -6,12 +6,20 @@ export function localDateKey(value) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function clock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
 function emptySummary(dateKey) {
   return {
     dateKey,
     feedings: 0,
     feedingAmount: 0,
+    feedingTimes: [],
     diapers: 0,
+    diaperTimes: [],
     wet: 0,
     solid: 0,
     both: 0,
@@ -35,38 +43,48 @@ export function buildDailySummaries({ feedings = [], sleep = [], changes = [], t
   }
 
   for (const entry of feedings) {
-    const key = localDateKey(entry.end || entry.start);
+    // ES18.16: una toma pertenece al día en que EMPIEZA.
+    const key = localDateKey(entry.start || entry.end);
     const item = result.get(key);
     if (!item) continue;
     item.feedings += 1;
     item.feedingAmount += Number(entry.amount || 0);
+    const time = clock(entry.start || entry.end);
+    if (time) item.feedingTimes.push(time);
   }
+
   for (const entry of sleep) {
     const key = localDateKey(entry.start);
     const item = result.get(key);
     if (!item) continue;
     item.sleepHours += parseDuration(entry.duration);
   }
+
   for (const entry of changes) {
     const key = localDateKey(entry.time);
     const item = result.get(key);
     if (!item) continue;
     item.diapers += 1;
+    const time = clock(entry.time);
+    if (time) item.diaperTimes.push(time);
     if (entry.wet && entry.solid) item.both += 1;
     else if (entry.wet) item.wet += 1;
     else if (entry.solid) item.solid += 1;
   }
+
   for (const entry of tummy) {
     const key = localDateKey(entry.start);
     const item = result.get(key);
     if (!item) continue;
     item.tummyMinutes += parseDuration(entry.duration) * 60;
   }
+
   for (const entry of medications) {
     const key = localDateKey(entry.time);
     const item = result.get(key);
     if (item) item.medications += 1;
   }
+
   for (const entry of temperatures) {
     const key = localDateKey(entry.time);
     const item = result.get(key);
@@ -80,6 +98,8 @@ export function buildDailySummaries({ feedings = [], sleep = [], changes = [], t
   return [...result.values()].map((item) => ({
     ...item,
     feedingAmount: Math.round(item.feedingAmount),
+    feedingTimes: [...item.feedingTimes].sort(),
+    diaperTimes: [...item.diaperTimes].sort(),
     sleepHours: Math.round(item.sleepHours * 100) / 100,
     tummyMinutes: Math.round(item.tummyMinutes),
   }));

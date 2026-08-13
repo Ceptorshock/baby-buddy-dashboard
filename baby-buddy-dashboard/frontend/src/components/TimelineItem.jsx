@@ -10,7 +10,12 @@ export default function TimelineItem({ time, label, detail, color, isLast, autho
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{label}</span>
-          <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--mono)", flexShrink: 0 }}>{time}</span>
+          <span
+            style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--mono)", flexShrink: 0 }}
+            title="Pulsa el registro para editarlo"
+          >
+            {time} <span aria-hidden="true" style={{ opacity: 0.75 }}>✎</span>
+          </span>
         </div>
         {detail && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{detail}</div>}
         {authorLabel && (

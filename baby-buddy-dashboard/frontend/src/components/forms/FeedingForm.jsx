@@ -25,6 +25,25 @@ function toLocalDatetime(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function addMinutes(value, minutes) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return toLocalDatetime(new Date(parsed.getTime() + minutes * 60000));
+}
+
+const quickButtonStyle = {
+  flex: 1,
+  minWidth: 72,
+  border: "1px solid var(--border)",
+  borderRadius: 10,
+  padding: "8px 10px",
+  background: "var(--bg)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
 export default function FeedingForm({ childId, timerId, entry, onDone, onClose }) {
   const units = useUnits();
   const isEdit = !!entry;
@@ -69,6 +88,24 @@ export default function FeedingForm({ childId, timerId, entry, onDone, onClose }
   return (
     <Modal title={isEdit ? "Editar toma" : "Registrar toma"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
+        {isEdit && (
+          <div style={{
+            marginBottom: 14,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
+            fontSize: 12,
+            color: "var(--text-muted)",
+            lineHeight: 1.45,
+          }}>
+            <strong style={{ color: "var(--text)" }}>¿Ha vuelto a mamar después de una pausa?</strong>
+            <div style={{ marginTop: 4 }}>
+              Puedes alargar esta misma toma en vez de crear otra. La alerta de la siguiente toma seguirá contando desde la hora de <strong>inicio</strong>.
+            </div>
+          </div>
+        )}
+
         <FormField label="Tipo">
           <FormSelect options={TYPES} value={type} onChange={(e) => setType(e.target.value)} />
         </FormField>
@@ -78,6 +115,7 @@ export default function FeedingForm({ childId, timerId, entry, onDone, onClose }
         <FormField label={`Cantidad (${units.volume})`}>
           <FormInput type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Opcional" min="0" step="5" />
         </FormField>
+
         {(isEdit || !timerId) && (
           <>
             <FormField label="Inicio">
@@ -96,8 +134,18 @@ export default function FeedingForm({ childId, timerId, entry, onDone, onClose }
                 required
               />
             </FormField>
+
+            {isEdit && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: -4, marginBottom: 14 }}>
+                <button type="button" style={quickButtonStyle} onClick={() => setEnd(addMinutes(end, 5))}>Fin +5 min</button>
+                <button type="button" style={quickButtonStyle} onClick={() => setEnd(addMinutes(end, 10))}>Fin +10 min</button>
+                <button type="button" style={quickButtonStyle} onClick={() => setEnd(addMinutes(end, 15))}>Fin +15 min</button>
+                <button type="button" style={quickButtonStyle} onClick={() => setEnd(toLocalDatetime(new Date()))}>Fin = ahora</button>
+              </div>
+            )}
           </>
         )}
+
         <FormField label="Notas">
           <FormInput
             type="text"
