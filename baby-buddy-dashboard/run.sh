@@ -11,6 +11,12 @@ for _legacy_key in bollito2_enabled disabled_child_ids; do
     fi
 done
 
+# ES18.16: la pauta de alimentación es INICIO de toma -> INICIO de toma.
+# El frontend ya usa start; esta sustitución mantiene alineados también
+# los avisos del backend/Home Assistant sin modificar el resto de server.py.
+if [ -f /app/backend/server.py ]; then
+    sed -i 's/feeding.get("end") or feeding.get("start")/feeding.get("start") or feeding.get("end")/g' /app/backend/server.py
+fi
 
 # Read configuration from HA add-on options
 export BABY_BUDDY_URL=$(bashio::config 'baby_buddy_url')

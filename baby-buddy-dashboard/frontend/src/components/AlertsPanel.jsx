@@ -16,21 +16,29 @@ function newestDate(entries, fields) {
 export default function AlertsPanel({ config, weeklyFeedings, activeTimers, elapsedMap, roomStatus }) {
   if (!config?.enabled) return null;
   const alerts = [];
-  const lastFeeding = newestDate(weeklyFeedings, ["end", "start"]);
+
+  // ES18.16: la pauta entre tomas se calcula INICIO → INICIO.
+  // "end" queda únicamente como respaldo para registros antiguos incompletos.
+  const lastFeeding = newestDate(weeklyFeedings, ["start", "end"]);
   if (lastFeeding) {
     const mins = Math.floor((Date.now() - lastFeeding.getTime()) / 60000);
-    if (mins >= config.feeding_minutes) alerts.push(`Han pasado ${Math.floor(mins / 60)} h ${mins % 60} min desde la última toma.`);
+    if (mins >= config.feeding_minutes) {
+      alerts.push(`Han pasado ${Math.floor(mins / 60)} h ${mins % 60} min desde el inicio de la última toma.`);
+    }
   }
+
   const temperature = Number(roomStatus?.temperature);
   if (Number.isFinite(temperature)) {
     if (temperature < config.room_temp_min) alerts.push(`La habitación está fría: ${temperature.toFixed(1)} °C.`);
     if (temperature > config.room_temp_max) alerts.push(`La habitación está caliente: ${temperature.toFixed(1)} °C.`);
   }
+
   const stock = Number(roomStatus?.diaper_stock);
   const diaperSize = roomStatus?.diaper_size || "la talla activa";
   if (roomStatus?.diaper_stock_available && Number.isFinite(stock) && stock <= config.diaper_stock_low_threshold) {
     alerts.push(`Quedan ${stock} pañales de ${diaperSize}.`);
   }
+
   if (!alerts.length) return null;
   return (
     <div className="alerts-panel fade-in">
