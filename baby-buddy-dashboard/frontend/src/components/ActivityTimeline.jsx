@@ -344,7 +344,18 @@ export default function ActivityTimeline({
                         fontFamily: "var(--mono)",
                       }}
                     >
-                      {item.time} · ✎
+                      <span>{item.time}</span>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          marginLeft: 5,
+                          fontSize: 17,
+                          lineHeight: 1,
+                          opacity: 0.85,
+                        }}
+                      >
+                        ✎
+                      </span>
                     </span>
                   </button>
                 ))}

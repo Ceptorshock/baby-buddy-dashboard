@@ -365,8 +365,42 @@ export default function FeedingForm({
       );
       if (mergedNotes) payload.notes = mergedNotes;
 
-      await api.updateFeeding(previousFeeding.id, payload);
+      // Baby Buddy no permite ampliar un registro si durante ese
+      // mismo PATCH todavía existe otro que se solapa. Por eso
+      // eliminamos primero la toma actual y después ampliamos la
+      // anterior. Si el PATCH falla, recreamos la toma actual para
+      // no perder el registro.
+      const rollbackData = {
+        child: childId,
+        start: `${start}:00`,
+        end: `${end}:00`,
+        type,
+        method,
+      };
+
+      if (amount) rollbackData.amount = parseFloat(amount);
+      if (notes.trim()) rollbackData.notes = notes.trim();
+
       await deleteFeeding(entry.id);
+
+      try {
+        await api.updateFeeding(previousFeeding.id, payload);
+      } catch (mergeError) {
+        try {
+          await api.createFeeding(rollbackData);
+        } catch (rollbackError) {
+          throw new Error(
+            `Falló la fusión y también la restauración automática. ` +
+            `Fusión: ${mergeError?.message || mergeError}. ` +
+            `Restauración: ${rollbackError?.message || rollbackError}`,
+          );
+        }
+
+        throw new Error(
+          `No se pudo fusionar. La toma actual se ha restaurado automáticamente. ` +
+          `${mergeError?.message || mergeError}`,
+        );
+      }
 
       onDone();
     } catch (err) {
