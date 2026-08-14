@@ -1,7 +1,6 @@
 import { Icons } from "./Icons";
 import { colors } from "../utils/colors";
-import { formatFeedingDuration, parseDuration } from "../utils/formatters";
-import { useUnits } from "../utils/units";
+import { feedingDurationSeconds, parseDuration } from "../utils/formatters";
 
 function timestampOf(entry, fields) {
   for (const field of fields) {
@@ -16,7 +15,7 @@ function ago(date) {
   if (minutes < 1) return "Ahora";
   if (minutes < 60) return `Hace ${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Hace ${hours} h ${minutes % 60 ? `${minutes % 60} min` : ""}`.trim();
+  if (hours < 24) return `Hace ${hours} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
   const days = Math.floor(hours / 24);
   return `Hace ${days} ${days === 1 ? "día" : "días"}`;
 }
@@ -59,13 +58,22 @@ function clock(value) {
   return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, activeTimers, elapsedMap }) {
-  const units = useUnits();
+function feedingMinutes(entry) {
+  return Math.max(0, Math.round(feedingDurationSeconds(entry) / 60));
+}
 
-  // Las tomas se ordenan y se expresan siempre desde el INICIO.
+export default function NowPanel({
+  weeklyFeedings,
+  weeklySleep,
+  recentChanges,
+  activeTimers,
+  elapsedMap,
+}) {
+  // Las tomas se ordenan siempre por el INICIO.
   const feeding = latest(weeklyFeedings, ["start", "end"]);
   const sleep = latest(weeklySleep, ["end", "start"]);
   const diaper = latest(recentChanges, ["time"]);
+
   const active = activeTimers?.[0];
   const allActive = activeTimers || [];
 
@@ -74,8 +82,8 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
   const diaperDate = timestampOf(diaper, ["time"]);
   const sleepHours = sleep ? parseDuration(sleep.duration) : 0;
 
-  const feedingValue = feeding
-    ? `${feeding.amount ? `${Math.round(Number(feeding.amount))} ${units.volume} · ` : ""}Inicio ${clock(feedingStart)} · Fin ${feeding.end ? clock(feeding.end) : "en curso"} · Duración ${formatFeedingDuration(feeding)} · Empezó ${ago(feedingStart).toLowerCase()}`
+  const feedingMain = feeding
+    ? `${clock(feedingStart)} – ${feeding.end ? clock(feeding.end) : "en curso"} (${feedingMinutes(feeding)} min)`
     : "Sin datos";
 
   const cards = [
@@ -83,7 +91,8 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
       icon: <Icons.Bottle />,
       color: colors.feeding,
       label: "Última toma",
-      value: feedingValue,
+      value: feedingMain,
+      secondary: feedingStart ? `Empezó ${ago(feedingStart).toLowerCase()}` : "",
     },
     {
       icon: <Icons.Droplet />,
@@ -106,9 +115,14 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
           <span className="eyebrow">AHORA</span>
           <h2>Situación de un vistazo</h2>
         </div>
+
         <span className={`now-status-dot${active ? " now-status-dot-active" : ""}`}>
           {active
-            ? `${activeLabel(active.name)}${activeLabel(active.name) === "Tomando" && active.start ? ` · inicio ${clock(active.start)}` : ""} · ${formatActiveElapsed(elapsedMap?.[active.id] || 0)}`
+            ? `${activeLabel(active.name)}${
+                activeLabel(active.name) === "Tomando" && active.start
+                  ? ` · desde ${clock(active.start)}`
+                  : ""
+              } · ${formatActiveElapsed(elapsedMap?.[active.id] || 0)}`
             : "Sin actividad en curso"}
         </span>
       </div>
@@ -120,13 +134,24 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
             const label = activeLabel(timer.name);
-            const icon = label === "Durmiendo" ? <Icons.Moon /> : label === "Boca abajo" ? <Icons.Sun /> : <Icons.Bottle />;
+            const icon =
+              label === "Durmiendo"
+                ? <Icons.Moon />
+                : label === "Boca abajo"
+                  ? <Icons.Sun />
+                  : <Icons.Bottle />;
+
             return (
               <div className="now-current-activity" key={timer.id}>
                 <span className="now-current-icon">{icon}</span>
                 <div>
                   <span>AHORA MISMO</span>
-                  <strong>{label}{label === "Tomando" && timer.start ? ` · inicio ${clock(timer.start)}` : ""}</strong>
+                  <strong>
+                    {label}
+                    {label === "Tomando" && timer.start
+                      ? ` · desde ${clock(timer.start)}`
+                      : ""}
+                  </strong>
                 </div>
                 <b>{hours > 0 ? `${hours} h ` : ""}{minutes} min</b>
               </div>
@@ -138,10 +163,26 @@ export default function NowPanel({ weeklyFeedings, weeklySleep, recentChanges, a
       <div className="now-grid">
         {cards.map((item) => (
           <div className="now-item" key={item.label}>
-            <span className="now-icon" style={{ color: item.color, background: `${item.color}16` }}>{item.icon}</span>
+            <span
+              className="now-icon"
+              style={{ color: item.color, background: `${item.color}16` }}
+            >
+              {item.icon}
+            </span>
             <div>
               <div className="now-label">{item.label}</div>
               <div className="now-value">{item.value}</div>
+              {item.secondary && (
+                <div
+                  style={{
+                    marginTop: 3,
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                  }}
+                >
+                  {item.secondary}
+                </div>
+              )}
             </div>
           </div>
         ))}

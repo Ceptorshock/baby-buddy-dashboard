@@ -254,69 +254,14 @@ export default function OverviewTab({
       0,
     );
 
-    const chronologicalFeedings = nightFeedings
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(a.start || a.end).getTime() -
-          new Date(b.start || b.end).getTime(),
-      );
-
-    const feedingIntervals = [];
-    for (let index = 1; index < chronologicalFeedings.length; index += 1) {
-      const previous = new Date(
-        chronologicalFeedings[index - 1].start ||
-          chronologicalFeedings[index - 1].end,
-      ).getTime();
-      const current = new Date(
-        chronologicalFeedings[index].start ||
-          chronologicalFeedings[index].end,
-      ).getTime();
-
-      if (Number.isFinite(previous) && Number.isFinite(current) && current >= previous) {
-        feedingIntervals.push(Math.round((current - previous) / 60000));
-      }
-    }
-
-    const averageFeedingInterval = feedingIntervals.length
-      ? Math.round(
-          feedingIntervals.reduce((sum, value) => sum + value, 0) /
-            feedingIntervals.length,
-        )
-      : 0;
-
-    const longestFeedingInterval = feedingIntervals.length
-      ? Math.max(...feedingIntervals)
-      : 0;
-
-    const longestSleep = overlappingSleep.length
-      ? Math.max(...overlappingSleep.map((item) => item.minutes))
-      : 0;
-
-    const wet = nightDiapers.filter(
-      (entry) => entry.wet && !entry.solid,
-    ).length;
-    const solid = nightDiapers.filter(
-      (entry) => entry.solid && !entry.wet,
-    ).length;
-    const both = nightDiapers.filter(
-      (entry) => entry.wet && entry.solid,
-    ).length;
-
     return {
       start,
       end,
       feedings: nightFeedings,
       feedingMinutes,
-      averageFeedingInterval,
-      longestFeedingInterval,
       diapers: nightDiapers,
-      wet,
-      solid,
-      both,
       sleep: overlappingSleep,
       sleepMinutes,
-      longestSleep,
     };
   }, [monthlyFeedings, monthlySleep, monthlyChanges]);
 
@@ -629,17 +574,6 @@ export default function OverviewTab({
     </div>
   );
 
-  const timelineContent = (
-    <ActivityTimeline
-      feedings={monthlyFeedings}
-      sleep={monthlySleep}
-      changes={monthlyChanges}
-      medications={monthlyMedications}
-      tummy={monthlyTummyTimes}
-      onEditEntry={onEditEntry}
-    />
-  );
-
   const nightContent = (
     <div style={{ display: "grid", gap: 16 }}>
       <SectionCard
@@ -695,29 +629,12 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
-                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
             >
               {night.feedingMinutes} min totales
             </span>
-            {night.averageFeedingInterval > 0 && (
-              <span
-                style={{
-                  display: "block",
-                  marginTop: 3,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                  lineHeight: 1.35,
-                }}
-              >
-                Intervalo medio {humanMinutes(night.averageFeedingInterval)}
-                {night.longestFeedingInterval > 0
-                  ? ` · mayor ${humanMinutes(night.longestFeedingInterval)}`
-                  : ""}
-              </span>
-            )}
           </div>
 
           <div
@@ -747,7 +664,6 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
-                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
@@ -755,18 +671,6 @@ export default function OverviewTab({
               {night.sleep.length}{" "}
               {night.sleep.length === 1 ? "tramo" : "tramos"}
             </span>
-            {night.longestSleep > 0 && (
-              <span
-                style={{
-                  display: "block",
-                  marginTop: 3,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
-                Tramo más largo {humanMinutes(night.longestSleep)}
-              </span>
-            )}
           </div>
 
           <div
@@ -796,22 +700,11 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
-                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
             >
               desde las 20:00
-            </span>
-            <span
-              style={{
-                display: "block",
-                marginTop: 3,
-                fontSize: 11,
-                color: "var(--text-dim)",
-              }}
-            >
-              {night.wet} pis · {night.solid} caca · {night.both} ambos
             </span>
           </div>
         </div>
@@ -1353,14 +1246,6 @@ export default function OverviewTab({
 
         <button
           type="button"
-          style={tabButton(activitySection === "timeline")}
-          onClick={() => setActivitySection("timeline")}
-        >
-          Cronología
-        </button>
-
-        <button
-          type="button"
           style={tabButton(activitySection === "night")}
           onClick={() => setActivitySection("night")}
         >
@@ -1383,7 +1268,6 @@ export default function OverviewTab({
         </>
       )}
 
-      {activitySection === "timeline" && timelineContent}
       {activitySection === "night" && nightContent}
       {activitySection === "summaries" && summariesContent}
 
