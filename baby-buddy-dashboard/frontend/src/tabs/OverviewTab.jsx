@@ -17,6 +17,7 @@ import CustomTooltip from "../components/CustomTooltip";
 import ChartDetailBar from "../components/ChartDetailBar";
 import DayActivitiesModal from "../components/DayActivitiesModal";
 import DailySummaryHistory from "../components/DailySummaryHistory";
+import ActivityTimeline from "../components/ActivityTimeline";
 import { Icons } from "../components/Icons";
 import { colors } from "../utils/colors";
 import {
@@ -111,24 +112,6 @@ function tabButton(active) {
     flex: "1 1 0",
     minWidth: 96,
   };
-}
-
-function editHint() {
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: "8px 10px",
-        borderRadius: 9,
-        border: "1px solid var(--border)",
-        background: "var(--bg)",
-        color: "var(--text-dim)",
-        fontSize: 11,
-      }}
-    >
-      ✎ Pulsa cualquier toma, sueño o pañal para corregirlo.
-    </div>
-  );
 }
 
 export default function OverviewTab({
@@ -253,14 +236,69 @@ export default function OverviewTab({
       0,
     );
 
+    const chronologicalFeedings = nightFeedings
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(a.start || a.end).getTime() -
+          new Date(b.start || b.end).getTime(),
+      );
+
+    const feedingIntervals = [];
+    for (let index = 1; index < chronologicalFeedings.length; index += 1) {
+      const previous = new Date(
+        chronologicalFeedings[index - 1].start ||
+          chronologicalFeedings[index - 1].end,
+      ).getTime();
+      const current = new Date(
+        chronologicalFeedings[index].start ||
+          chronologicalFeedings[index].end,
+      ).getTime();
+
+      if (Number.isFinite(previous) && Number.isFinite(current) && current >= previous) {
+        feedingIntervals.push(Math.round((current - previous) / 60000));
+      }
+    }
+
+    const averageFeedingInterval = feedingIntervals.length
+      ? Math.round(
+          feedingIntervals.reduce((sum, value) => sum + value, 0) /
+            feedingIntervals.length,
+        )
+      : 0;
+
+    const longestFeedingInterval = feedingIntervals.length
+      ? Math.max(...feedingIntervals)
+      : 0;
+
+    const longestSleep = overlappingSleep.length
+      ? Math.max(...overlappingSleep.map((item) => item.minutes))
+      : 0;
+
+    const wet = nightDiapers.filter(
+      (entry) => entry.wet && !entry.solid,
+    ).length;
+    const solid = nightDiapers.filter(
+      (entry) => entry.solid && !entry.wet,
+    ).length;
+    const both = nightDiapers.filter(
+      (entry) => entry.wet && entry.solid,
+    ).length;
+
     return {
       start,
       end,
       feedings: nightFeedings,
       feedingMinutes,
+      averageFeedingInterval,
+      longestFeedingInterval,
       diapers: nightDiapers,
+      wet,
+      solid,
+      both,
       sleep: overlappingSleep,
       sleepMinutes,
+      longestSleep,
     };
   }, [monthlyFeedings, monthlySleep, monthlyChanges]);
 
@@ -573,6 +611,17 @@ export default function OverviewTab({
     </div>
   );
 
+  const timelineContent = (
+    <ActivityTimeline
+      feedings={monthlyFeedings}
+      sleep={monthlySleep}
+      changes={monthlyChanges}
+      medications={monthlyMedications}
+      tummy={monthlyTummyTimes}
+      onEditEntry={onEditEntry}
+    />
+  );
+
   const nightContent = (
     <div style={{ display: "grid", gap: 16 }}>
       <SectionCard
@@ -628,12 +677,29 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
+                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
             >
               {night.feedingMinutes} min totales
             </span>
+            {night.averageFeedingInterval > 0 && (
+              <span
+                style={{
+                  display: "block",
+                  marginTop: 3,
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                  lineHeight: 1.35,
+                }}
+              >
+                Intervalo medio {humanMinutes(night.averageFeedingInterval)}
+                {night.longestFeedingInterval > 0
+                  ? ` · mayor ${humanMinutes(night.longestFeedingInterval)}`
+                  : ""}
+              </span>
+            )}
           </div>
 
           <div
@@ -663,6 +729,7 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
+                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
@@ -670,6 +737,18 @@ export default function OverviewTab({
               {night.sleep.length}{" "}
               {night.sleep.length === 1 ? "tramo" : "tramos"}
             </span>
+            {night.longestSleep > 0 && (
+              <span
+                style={{
+                  display: "block",
+                  marginTop: 3,
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                }}
+              >
+                Tramo más largo {humanMinutes(night.longestSleep)}
+              </span>
+            )}
           </div>
 
           <div
@@ -699,11 +778,22 @@ export default function OverviewTab({
             </strong>
             <span
               style={{
+                display: "block",
                 fontSize: 12,
                 color: "var(--text-muted)",
               }}
             >
               desde las 20:00
+            </span>
+            <span
+              style={{
+                display: "block",
+                marginTop: 3,
+                fontSize: 11,
+                color: "var(--text-dim)",
+              }}
+            >
+              {night.wet} pis · {night.solid} caca · {night.both} ambos
             </span>
           </div>
         </div>
@@ -715,7 +805,15 @@ export default function OverviewTab({
         color={colors.feeding}
       >
         {night.feedings.length ? (
-          <div style={{ display: "grid", gap: 4 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(210px, 280px))",
+              gap: 7,
+              justifyContent: "start",
+            }}
+          >
             {night.feedings
               .slice()
               .sort(
@@ -736,34 +834,53 @@ export default function OverviewTab({
                     onClick={() =>
                       onEditEntry?.("feeding", entry)
                     }
+                    title="Editar toma"
                     style={{
-                      width: "100%",
-                      border: 0,
-                      borderBottom: "1px solid var(--border)",
-                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: 9,
+                      background: "var(--bg)",
                       color: "var(--text)",
-                      padding: "9px 4px",
+                      padding: "7px 9px",
                       display: "flex",
                       justifyContent: "space-between",
-                      gap: 12,
+                      gap: 10,
                       alignItems: "center",
                       fontFamily: "inherit",
                       cursor: "pointer",
                       textAlign: "left",
                     }}
                   >
-                    <strong style={{ fontSize: 13 }}>
-                      {clock(start)} –{" "}
-                      {entry.end ? clock(entry.end) : "en curso"}
-                    </strong>
-                    <span
+                    <strong
                       style={{
-                        color: "var(--text-muted)",
                         fontSize: 12,
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {minutes} min · ✎
+                      {clock(start)} –{" "}
+                      {entry.end ? clock(entry.end) : "en curso"}
+                    </strong>
+
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        color: "var(--text-muted)",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {minutes} min
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          fontSize: 17,
+                          lineHeight: 1,
+                          opacity: 0.85,
+                        }}
+                      >
+                        ✎
+                      </span>
                     </span>
                   </button>
                 );
@@ -775,7 +892,7 @@ export default function OverviewTab({
               color: "var(--text-dim)",
               fontSize: 13,
               textAlign: "center",
-              padding: 20,
+              padding: 16,
             }}
           >
             No hay tomas desde las 20:00
@@ -1245,6 +1362,14 @@ export default function OverviewTab({
 
         <button
           type="button"
+          style={tabButton(activitySection === "timeline")}
+          onClick={() => setActivitySection("timeline")}
+        >
+          Cronología
+        </button>
+
+        <button
+          type="button"
           style={tabButton(activitySection === "night")}
           onClick={() => setActivitySection("night")}
         >
@@ -1260,13 +1385,9 @@ export default function OverviewTab({
         </button>
       </div>
 
-      {activitySection === "records" && (
-        <>
-          {editHint()}
-          {recordsContent}
-        </>
-      )}
+      {activitySection === "records" && recordsContent}
 
+      {activitySection === "timeline" && timelineContent}
       {activitySection === "night" && nightContent}
       {activitySection === "summaries" && summariesContent}
 
