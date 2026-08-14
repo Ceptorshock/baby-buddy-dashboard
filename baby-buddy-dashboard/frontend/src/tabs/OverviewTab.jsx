@@ -17,6 +17,7 @@ import CustomTooltip from "../components/CustomTooltip";
 import ChartDetailBar from "../components/ChartDetailBar";
 import DayActivitiesModal from "../components/DayActivitiesModal";
 import DailySummaryHistory from "../components/DailySummaryHistory";
+import ActivityTimeline from "../components/ActivityTimeline";
 import { Icons } from "../components/Icons";
 import { colors } from "../utils/colors";
 import {
