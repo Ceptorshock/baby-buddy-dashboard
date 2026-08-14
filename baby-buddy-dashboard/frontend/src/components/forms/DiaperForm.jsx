@@ -33,12 +33,11 @@ export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose
       const data = { wet, solid, time: `${time}:00` };
       if (color) data.color = color;
       if (notes.trim()) data.notes = notes.trim();
+
       if (isEdit) {
         await api.updateChange(entry.id, data);
       } else {
         data.child = childId;
-        // Solo se usa para este cambio. El backend lo elimina antes de enviarlo a
-        // Baby Buddy y lo usa para descontar la talla correcta en Grocy.
         if (selectedSize) data._dashboard_diaper_size = selectedSize;
         const created = await api.createChange(data);
         const grocy = created?._grocy;
@@ -53,6 +52,7 @@ export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose
             : "Pañal registrado · descuento de Grocy pendiente",
         });
       }
+
       if (isEdit) onDone();
     } catch {
       setSaving(false);
@@ -62,14 +62,24 @@ export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose
   return (
     <Modal title={isEdit ? "Editar cambio de pañal" : "Registrar cambio de pañal"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
+        {isEdit && (
+          <div style={{
+            marginBottom: 14,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
+            color: "var(--text-muted)",
+            fontSize: 12,
+          }}>
+            Corrige aquí la hora y si fue <strong>pis</strong>, <strong>caca</strong> o ambos. Editar el tipo no descuenta otro pañal de Grocy.
+          </div>
+        )}
+
         <FormField label="Hora">
-          <FormInput
-            type="datetime-local"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            required
-          />
+          <FormInput type="datetime-local" value={time} onChange={(e) => setTime(e.target.value)} required />
         </FormField>
+
         {!isEdit && diaperSize?.configured && diaperSize.available && (
           <FormField label="Talla para este cambio">
             <FormSelect
@@ -78,15 +88,17 @@ export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose
               onChange={(e) => setSelectedSize(e.target.value)}
             />
             <div className="form-help" style={{ marginTop: 6 }}>
-              Solo afecta a este pañal y al descuento de Grocy. <strong>No cambia la talla habitual</strong>; esa se cambia únicamente junto al nombre del bebé.
+              Solo afecta a este pañal y al descuento de Grocy. <strong>No cambia la talla habitual</strong>.
             </div>
           </FormField>
         )}
+
         {!isEdit && (!diaperSize?.configured || !diaperSize.available) && (
           <div className="form-warning">
             No hay una talla de pañal disponible para este bebé en Home Assistant.
           </div>
         )}
+
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           {[
             { key: "wet", label: "Pis", active: wet, toggle: () => setWet(!wet) },
@@ -113,19 +125,17 @@ export default function DiaperForm({ childId, entry, diaperSize, onDone, onClose
             </button>
           ))}
         </div>
+
         {solid && (
           <FormField label="Color">
             <FormSelect options={COLORS} value={color} onChange={(e) => setColor(e.target.value)} />
           </FormField>
         )}
+
         <FormField label="Notas">
-          <FormInput
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Opcional"
-          />
+          <FormInput type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
         </FormField>
+
         <FormButton color={colors.diaper} disabled={saving || (!wet && !solid)}>
           {saving ? "Guardando..." : isEdit ? "Actualizar cambio" : "Guardar cambio"}
         </FormButton>
