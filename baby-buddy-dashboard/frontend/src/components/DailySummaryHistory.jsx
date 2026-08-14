@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import SectionCard from "./SectionCard";
 import { Icons } from "./Icons";
 import { buildDailySummaries, hasSummaryData, summaryDateLabel } from "../utils/dailySummary";
+import { formatFeedingDuration } from "../utils/formatters";
 import { useUnits } from "../utils/units";
 import { colors } from "../utils/colors";
 
@@ -31,6 +32,7 @@ function RecentTimes({ data }) {
       .slice(0, 5),
     [data.feedings]
   );
+
   const diapers = useMemo(
     () => [...(data.changes || [])]
       .filter((x) => x?.time)
@@ -42,18 +44,31 @@ function RecentTimes({ data }) {
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
       gap: 10,
       marginBottom: 14,
     }}>
       <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--bg)" }}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>🍼 Últimas 5 tomas</div>
-        {feedings.length ? feedings.map((entry) => {
-          const value = entry.start || entry.end;
+        {feedings.length ? feedings.map((entry, index) => {
+          const startValue = entry.start || entry.end;
           return (
-            <div key={entry.id || value} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 13 }}>
-              <span>{dayShort(value)}</span>
-              <strong>{timeOf(value)}</strong>
+            <div
+              key={entry.id || `${startValue}-${index}`}
+              style={{
+                padding: "8px 0",
+                borderBottom: index === feedings.length - 1 ? "none" : "1px solid var(--border)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, marginBottom: 3 }}>
+                <strong>{dayShort(startValue)}</strong>
+                <strong style={{ color: colors.feeding }}>{formatFeedingDuration(entry)}</strong>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                <span><strong>Inicio:</strong> {timeOf(startValue)}</span>
+                <span style={{ margin: "0 7px", opacity: 0.55 }}>·</span>
+                <span><strong>Fin:</strong> {entry.end ? timeOf(entry.end) : "en curso"}</span>
+              </div>
             </div>
           );
         }) : <div style={{ color: "var(--text-dim)", fontSize: 12 }}>Sin tomas registradas</div>}
@@ -68,6 +83,23 @@ function RecentTimes({ data }) {
           </div>
         )) : <div style={{ color: "var(--text-dim)", fontSize: 12 }}>Sin cambios registrados</div>}
       </div>
+    </div>
+  );
+}
+
+function FeedingRows({ details }) {
+  if (!details?.length) return null;
+  return (
+    <div style={{ marginTop: 6, display: "grid", gap: 3 }}>
+      {details.map((feeding, index) => (
+        <div key={`${feeding.start}-${feeding.end}-${index}`} style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45 }}>
+          <strong style={{ color: "var(--text)" }}>{feeding.start}</strong>
+          {" → "}
+          <strong style={{ color: "var(--text)" }}>{feeding.end}</strong>
+          {" · "}
+          {feeding.duration}
+        </div>
+      ))}
     </div>
   );
 }
@@ -87,14 +119,19 @@ function SummaryDetail({ item, units }) {
     <div className="daily-summary-detail">
       <div>
         <span>🍼 Tomas</span>
-        <strong>{item.feedings}{item.feedingAmount > 0 ? ` · ${item.feedingAmount} ${units.volume}` : ""}</strong>
-        <TimesLine title="Horas" times={item.feedingTimes} />
+        <strong>
+          {item.feedings} · {item.feedingMinutes || 0} min totales
+          {item.feedingAmount > 0 ? ` · ${item.feedingAmount} ${units.volume}` : ""}
+        </strong>
+        <FeedingRows details={item.feedingDetails} />
       </div>
+
       <div>
         <span>🧷 Pañales</span>
         <strong>{item.diapers} · {item.wet} pis · {item.solid} caca · {item.both} ambos</strong>
         <TimesLine title="Horas" times={item.diaperTimes} />
       </div>
+
       <div><span>😴 Sueño</span><strong>{item.sleepHours.toFixed(1)} h</strong></div>
       <div><span>🤸 Boca abajo</span><strong>{item.tummyMinutes} min</strong></div>
       <div><span>💊 Medicación</span><strong>{item.medications} dosis</strong></div>
@@ -116,6 +153,18 @@ export default function DailySummaryHistory({ data }) {
       <SectionCard title="Resúmenes diarios" icon={<Icons.History />} color={colors.feeding}>
         <RecentTimes data={data} />
 
+        <div style={{
+          padding: "9px 11px",
+          marginBottom: 12,
+          borderRadius: 10,
+          border: "1px solid var(--border)",
+          background: "var(--bg)",
+          color: "var(--text-muted)",
+          fontSize: 12,
+        }}>
+          ✎ Para corregir una toma, un sueño o un pañal, baja a sus historiales de esta misma pestaña y pulsa directamente sobre el registro. «Mostrar más» enseña todos los de hoy.
+        </div>
+
         <div className="daily-summary-tabs">
           <button className={section === "today" ? "active" : ""} onClick={() => setSection("today")}>Hoy</button>
           <button className={section === "yesterday" ? "active" : ""} onClick={() => setSection("yesterday")}>Ayer</button>
@@ -124,6 +173,7 @@ export default function DailySummaryHistory({ data }) {
 
         {section === "today" && <><h4 className="daily-summary-date">{summaryDateLabel(today.dateKey, true)}</h4><SummaryDetail item={today} units={units} /></>}
         {section === "yesterday" && <><h4 className="daily-summary-date">{summaryDateLabel(yesterday.dateKey, true)}</h4><SummaryDetail item={yesterday} units={units} /></>}
+
         {section === "history" && (
           <div className="daily-summary-history-list">
             {summaries.map((item) => {
@@ -136,7 +186,9 @@ export default function DailySummaryHistory({ data }) {
                     onClick={() => setSelected(isSelected ? null : item.dateKey)}
                   >
                     <strong>{summaryDateLabel(item.dateKey)}</strong>
-                    {hasSummaryData(item) ? <span>🍼 {item.feedings} · 🧷 {item.diapers} · 😴 {item.sleepHours.toFixed(1)}h · 💊 {item.medications}{item.temperatureMax !== null ? ` · 🌡️ ${item.temperatureMax.toFixed(1)}°` : ""}</span> : <span>Sin registros</span>}
+                    {hasSummaryData(item)
+                      ? <span>🍼 {item.feedings}/{item.feedingMinutes || 0} min · 🧷 {item.diapers} · 😴 {item.sleepHours.toFixed(1)}h · 💊 {item.medications}{item.temperatureMax !== null ? ` · 🌡️ ${item.temperatureMax.toFixed(1)}°` : ""}</span>
+                      : <span>Sin registros</span>}
                   </button>
                   {isSelected && (
                     <div className="daily-summary-selected-inline">

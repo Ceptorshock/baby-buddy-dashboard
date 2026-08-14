@@ -1,4 +1,4 @@
-import { parseDuration } from "./formatters";
+import { feedingDurationSeconds, formatFeedingDuration, parseDuration } from "./formatters";
 
 export function localDateKey(value) {
   const date = value instanceof Date ? value : new Date(value);
@@ -17,7 +17,10 @@ function emptySummary(dateKey) {
     dateKey,
     feedings: 0,
     feedingAmount: 0,
+    feedingSeconds: 0,
+    feedingMinutes: 0,
     feedingTimes: [],
+    feedingDetails: [],
     diapers: 0,
     diaperTimes: [],
     wet: 0,
@@ -34,6 +37,7 @@ function emptySummary(dateKey) {
 export function buildDailySummaries({ feedings = [], sleep = [], changes = [], tummy = [], temperatures = [], medications = [] }, days = 30) {
   const result = new Map();
   const now = new Date();
+
   for (let i = 0; i < days; i += 1) {
     const date = new Date(now);
     date.setHours(12, 0, 0, 0);
@@ -43,14 +47,25 @@ export function buildDailySummaries({ feedings = [], sleep = [], changes = [], t
   }
 
   for (const entry of feedings) {
-    // ES18.16: una toma pertenece al día en que EMPIEZA.
-    const key = localDateKey(entry.start || entry.end);
+    const startValue = entry.start || entry.end;
+    const key = localDateKey(startValue);
     const item = result.get(key);
     if (!item) continue;
+
     item.feedings += 1;
     item.feedingAmount += Number(entry.amount || 0);
-    const time = clock(entry.start || entry.end);
-    if (time) item.feedingTimes.push(time);
+    item.feedingSeconds += feedingDurationSeconds(entry);
+
+    const startText = clock(startValue);
+    const endText = entry.end ? clock(entry.end) : "en curso";
+    if (startText) item.feedingTimes.push(startText);
+
+    item.feedingDetails.push({
+      start: startText || "—",
+      end: endText,
+      duration: formatFeedingDuration(entry),
+      sortValue: new Date(startValue).getTime() || 0,
+    });
   }
 
   for (const entry of sleep) {
@@ -98,7 +113,11 @@ export function buildDailySummaries({ feedings = [], sleep = [], changes = [], t
   return [...result.values()].map((item) => ({
     ...item,
     feedingAmount: Math.round(item.feedingAmount),
+    feedingMinutes: Math.round(item.feedingSeconds / 60),
     feedingTimes: [...item.feedingTimes].sort(),
+    feedingDetails: [...item.feedingDetails]
+      .sort((a, b) => a.sortValue - b.sortValue)
+      .map(({ sortValue, ...detail }) => detail),
     diaperTimes: [...item.diaperTimes].sort(),
     sleepHours: Math.round(item.sleepHours * 100) / 100,
     tummyMinutes: Math.round(item.tummyMinutes),

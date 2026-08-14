@@ -61,17 +61,23 @@ export function formatElapsed(seconds) {
 
 export function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
+  const mins = Math.max(0, Math.floor(diff / 60000));
   if (mins < 1) return translate("time.justNow");
   if (mins < 60) return translate("time.minutesAgo", { count: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return translate("time.hoursAgo", { count: hours });
+  if (hours < 24) {
+    const rest = mins % 60;
+    return rest ? `Hace ${hours} h ${rest} min` : translate("time.hoursAgo", { count: hours });
+  }
   const days = Math.floor(hours / 24);
   return translate("time.daysAgo", { count: days });
 }
 
 export function formatTime(dateStr) {
-  return new Date(dateStr).toLocaleTimeString("es-ES", {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("es-ES", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -79,10 +85,10 @@ export function formatTime(dateStr) {
 
 export function parseDuration(durationStr) {
   if (!durationStr) return 0;
-  const parts = durationStr.split(":").map(Number);
+  const parts = String(durationStr).split(":").map(Number);
   if (parts.length === 3) return parts[0] + parts[1] / 60 + parts[2] / 3600;
   if (parts.length === 2) return parts[0] + parts[1] / 60;
-  return parts[0];
+  return parts[0] || 0;
 }
 
 export function formatDuration(durationStr) {
@@ -92,17 +98,61 @@ export function formatDuration(durationStr) {
   return `${hours.toFixed(1)} h`;
 }
 
+export function feedingDurationSeconds(feeding) {
+  if (!feeding) return 0;
+
+  if (feeding.start && feeding.end) {
+    const start = new Date(feeding.start);
+    const end = new Date(feeding.end);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
+    }
+  }
+
+  if (feeding.duration) {
+    return Math.max(0, Math.round(parseDuration(feeding.duration) * 3600));
+  }
+
+  if (feeding.start && !feeding.end) {
+    const start = new Date(feeding.start);
+    if (!Number.isNaN(start.getTime())) {
+      return Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
+    }
+  }
+
+  return 0;
+}
+
+export function formatExactSeconds(totalSeconds) {
+  const total = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+
+  if (hours > 0) return `${hours} h ${minutes} min ${seconds} s`;
+  if (minutes > 0) return `${minutes} min ${seconds} s`;
+  return `${seconds} s`;
+}
+
+export function formatFeedingDuration(feeding) {
+  return formatExactSeconds(feedingDurationSeconds(feeding));
+}
+
 export function toFeedingTimeline(feedings, volumeUnit = "mL") {
   return feedings.map((f) => {
     const amount = f.amount ? `${f.amount} ${volumeUnit}` : "";
     const method = localizeFeedingValue(f.method, FEEDING_METHODS);
     const type = localizeFeedingValue(f.type, FEEDING_TYPES);
     const description = method || type || translate("action.feeding");
+    const startValue = f.start || f.end;
+    const startText = formatTime(startValue);
+    const endText = f.end ? formatTime(f.end) : "en curso";
+    const durationText = formatFeedingDuration(f);
 
     return {
-      time: formatTime(f.end || f.start),
+      time: `${startText}–${f.end ? endText : "…"}`,
       label: [amount, description].filter(Boolean).join(" "),
-      detail: timeAgo(f.end || f.start),
+      detail: `Inicio ${startText} · Fin ${endText} · Duración ${durationText}${startValue ? ` · ${timeAgo(startValue)}` : ""}`,
       amount: f.amount || 0,
       type: f.type,
       method: f.method,
@@ -261,7 +311,7 @@ export function getEntriesForDay(entries, dayLabel, dateKey = "start") {
 }
 
 export function getEntriesForDate(entries, dateLabel, dateKey = "start") {
-  const targetDate = dateLabel; // Already in format like "Jan 15"
+  const targetDate = dateLabel;
   return entries.filter((e) => {
     const entryDate = new Date(e[dateKey] || e.time || e.date);
     const formattedDate = entryDate.toLocaleDateString("es-ES", {

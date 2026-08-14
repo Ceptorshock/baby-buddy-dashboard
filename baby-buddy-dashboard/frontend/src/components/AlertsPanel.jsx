@@ -17,8 +17,7 @@ export default function AlertsPanel({ config, weeklyFeedings, activeTimers, elap
   if (!config?.enabled) return null;
   const alerts = [];
 
-  // ES18.16: la pauta entre tomas se calcula INICIO → INICIO.
-  // "end" queda únicamente como respaldo para registros antiguos incompletos.
+  // Siempre INICIO -> INICIO. "end" solo sirve como respaldo para datos antiguos.
   const lastFeeding = newestDate(weeklyFeedings, ["start", "end"]);
   if (lastFeeding) {
     const mins = Math.floor((Date.now() - lastFeeding.getTime()) / 60000);

@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.15-es18.15"
+version: "2.0.17-es18.18"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con medicación agrupada por momentos del día, resúmenes diarios legibles, relevo activable, recordatorios, pañales/Grocy con talla temporal, temperatura y calendario."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
@@ -36,7 +36,7 @@ options:
   night_mode_enabled: true
   night_mode_start: "22:00"
   night_mode_end: "07:00"
-  feeding_alert_minutes: 240
+  feeding_alert_minutes: 180
   active_timer_alert_minutes: 180
   room_temp_min: 18
   room_temp_max: 27

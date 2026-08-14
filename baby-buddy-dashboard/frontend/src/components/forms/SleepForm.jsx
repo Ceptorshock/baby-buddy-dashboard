@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api";
 import Modal, { FormField, FormInput, FormButton } from "../Modal";
-
 import { colors } from "../../utils/colors";
 
 function toLocalDatetime(date) {
@@ -9,18 +8,60 @@ function toLocalDatetime(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function timerList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+}
+
 export default function SleepForm({ childId, timerId, entry, onDone, onClose }) {
   const isEdit = !!entry;
   const now = new Date();
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
   const [start, setStart] = useState(entry?.start ? toLocalDatetime(new Date(entry.start)) : toLocalDatetime(oneHourAgo));
   const [end, setEnd] = useState(entry?.end ? toLocalDatetime(new Date(entry.end)) : toLocalDatetime(now));
   const [notes, setNotes] = useState(entry?.notes || "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [timerLoading, setTimerLoading] = useState(Boolean(timerId));
+  const [timerResolved, setTimerResolved] = useState(!timerId);
+
+  useEffect(() => {
+    if (!timerId || entry) return;
+    let cancelled = false;
+
+    api.getTimers()
+      .then((payload) => {
+        if (cancelled) return;
+        const timer = timerList(payload).find((item) => String(item.id) === String(timerId));
+        if (timer?.start) {
+          setStart(toLocalDatetime(new Date(timer.start)));
+          setEnd(toLocalDatetime(new Date()));
+          setTimerResolved(true);
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setTimerLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [timerId, entry]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
+
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+      setError("La hora de fin debe ser igual o posterior a la hora de inicio.");
+      return;
+    }
+
     setSaving(true);
+
     try {
       if (isEdit) {
         const data = {
@@ -29,20 +70,29 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
         };
         if (notes.trim()) data.notes = notes.trim();
         await api.updateSleep(entry.id, data);
-      } else {
-        const data = { child: childId };
-        if (notes.trim()) data.notes = notes.trim();
-        if (timerId) {
-          data.timer = timerId;
-        } else {
-          data.start = `${start}:00`;
-          data.end = `${end}:00`;
-        }
-        const created = await api.createSleep(data);
-        onDone({ type: "sleep", id: created.id, label: "Sueño", childId });
+        onDone();
+        return;
       }
-      if (isEdit) onDone();
-    } catch {
+
+      const data = { child: childId };
+      if (notes.trim()) data.notes = notes.trim();
+
+      if (timerId && !timerResolved) {
+        data.timer = timerId;
+      } else {
+        data.start = `${start}:00`;
+        data.end = `${end}:00`;
+      }
+
+      const created = await api.createSleep(data);
+
+      if (timerId && timerResolved) {
+        await api.deleteTimer(timerId).catch(() => null);
+      }
+
+      onDone({ type: "sleep", id: created.id, label: "Sueño", childId });
+    } catch (err) {
+      setError(err?.message || "No se pudo guardar el sueño.");
       setSaving(false);
     }
   };
@@ -50,39 +100,43 @@ export default function SleepForm({ childId, timerId, entry, onDone, onClose }) 
   return (
     <Modal title={isEdit ? "Editar sueño" : "Registrar sueño"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        {!isEdit && timerId ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-            Se utilizarán las horas de inicio y fin del temporizador para este registro de sueño.
-          </p>
-        ) : (
+        {timerId && !isEdit && (
+          <div style={{
+            marginBottom: 14,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
+            fontSize: 12,
+            color: "var(--text-muted)",
+            lineHeight: 1.45,
+          }}>
+            {timerLoading
+              ? "Cargando las horas del temporizador…"
+              : timerResolved
+                ? "Puedes corregir el inicio y el fin antes de guardar el sueño."
+                : "No se pudo recuperar el inicio; se usará el temporizador original."}
+          </div>
+        )}
+
+        {(!timerId || timerResolved || isEdit) && (
           <>
             <FormField label="Inicio">
-              <FormInput
-                type="datetime-local"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-                required
-              />
+              <FormInput type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
             </FormField>
             <FormField label="Fin">
-              <FormInput
-                type="datetime-local"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-                required
-              />
+              <FormInput type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
             </FormField>
           </>
         )}
+
         <FormField label="Notas">
-          <FormInput
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Opcional"
-          />
+          <FormInput type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
         </FormField>
-        <FormButton color={colors.sleep} disabled={saving}>
+
+        {error && <div style={{ marginBottom: 12, color: "#ef4444", fontSize: 12 }}>{error}</div>}
+
+        <FormButton color={colors.sleep} disabled={saving || timerLoading}>
           {saving ? "Guardando..." : isEdit ? "Actualizar sueño" : "Guardar sueño"}
         </FormButton>
       </form>

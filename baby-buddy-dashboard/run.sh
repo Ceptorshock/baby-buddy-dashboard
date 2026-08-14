@@ -1,8 +1,6 @@
 #!/usr/bin/with-contenv bashio
 
 # ES18.3: estos dos ajustes se gestionan ahora desde el engranaje de la app.
-# Eliminamos las claves antiguas de Supervisor para que no queden opciones
-# huérfanas al desaparecer del schema de config.yaml.
 _options="$(bashio::addon.options)"
 for _legacy_key in bollito2_enabled disabled_child_ids; do
     if bashio::jq.exists "${_options}" ".${_legacy_key}"; then
@@ -11,14 +9,11 @@ for _legacy_key in bollito2_enabled disabled_child_ids; do
     fi
 done
 
-# ES18.16: la pauta de alimentación es INICIO de toma -> INICIO de toma.
-# El frontend ya usa start; esta sustitución mantiene alineados también
-# los avisos del backend/Home Assistant sin modificar el resto de server.py.
+# La pauta de alimentación se calcula INICIO de toma -> INICIO de toma.
 if [ -f /app/backend/server.py ]; then
     sed -i 's/feeding.get("end") or feeding.get("start")/feeding.get("start") or feeding.get("end")/g' /app/backend/server.py
 fi
 
-# Read configuration from HA add-on options
 export BABY_BUDDY_URL=$(bashio::config 'baby_buddy_url')
 export BABY_BUDDY_API_KEY=$(bashio::config 'baby_buddy_api_key')
 export REFRESH_INTERVAL=$(bashio::config 'refresh_interval')
