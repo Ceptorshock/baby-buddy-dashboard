@@ -8,6 +8,7 @@ import Modal, {
 } from "../Modal";
 import { colors } from "../../utils/colors";
 import { useUnits } from "../../utils/units";
+import { isAlexaFeeding } from "../../utils/formatters";
 
 const TYPES = [
   { value: "breast milk", label: "Leche materna" },
@@ -102,6 +103,56 @@ function combinedNotes(previousNotes, currentNotes) {
   return `${previous} | ${current}`;
 }
 
+function feedingTagName(tag) {
+  if (typeof tag === "string") return tag.trim();
+  return String(tag?.name || tag?.label || tag?.value || "").trim();
+}
+
+function normalizeFeedingTags(tags) {
+  const seen = new Set();
+  const result = [];
+
+  for (const tag of Array.isArray(tags) ? tags : []) {
+    const name = feedingTagName(tag);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+
+  return result;
+}
+
+function stripAlexaNoteMarker(value) {
+  return String(value || "")
+    .replace(/registrado\s+mediante\s+alexa/gi, "")
+    .replace(/registrado\s+por\s+alexa/gi, "")
+    .replace(/controlado\s+por\s+alexa/gi, "")
+    .replace(/\s*\|\s*\|\s*/g, " | ")
+    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function applyAlexaMetadata(notes, tags, enabled) {
+  const cleanNotes = stripAlexaNoteMarker(notes);
+  const cleanTags = normalizeFeedingTags(tags).filter(
+    (tag) => tag.toLowerCase() !== "alexa",
+  );
+
+  if (!enabled) {
+    return { notes: cleanNotes, tags: cleanTags };
+  }
+
+  return {
+    notes: cleanNotes
+      ? `${cleanNotes} | Registrado mediante Alexa`
+      : "Registrado mediante Alexa",
+    tags: [...cleanTags, "Alexa"],
+  };
+}
+
 async function deleteFeeding(id) {
   const response = await fetch(`./api/baby-buddy/feedings/${id}/`, {
     method: "DELETE",
@@ -166,6 +217,9 @@ export default function FeedingForm({
       : toLocalDatetime(now),
   );
   const [notes, setNotes] = useState(entry?.notes || "");
+  const [alexaMarked, setAlexaMarked] = useState(() =>
+    isAlexaFeeding(entry),
+  );
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -359,11 +413,22 @@ export default function FeedingForm({
 
       if (mergedAmount > 0) payload.amount = mergedAmount;
 
+      const mergedAlexa =
+        isAlexaFeeding(previousFeeding) || alexaMarked;
       const mergedNotes = combinedNotes(
         previousFeeding.notes,
         notes,
       );
-      if (mergedNotes) payload.notes = mergedNotes;
+      const mergedMetadata = applyAlexaMetadata(
+        mergedNotes,
+        [
+          ...normalizeFeedingTags(previousFeeding.tags),
+          ...normalizeFeedingTags(entry?.tags),
+        ],
+        mergedAlexa,
+      );
+      payload.notes = mergedMetadata.notes;
+      payload.tags = mergedMetadata.tags;
 
       // Baby Buddy no permite ampliar un registro si durante ese
       // mismo PATCH todavía existe otro que se solapa. Por eso
@@ -379,7 +444,13 @@ export default function FeedingForm({
       };
 
       if (amount) rollbackData.amount = parseFloat(amount);
-      if (notes.trim()) rollbackData.notes = notes.trim();
+      const rollbackMetadata = applyAlexaMetadata(
+        notes,
+        entry?.tags,
+        alexaMarked,
+      );
+      rollbackData.notes = rollbackMetadata.notes;
+      rollbackData.tags = rollbackMetadata.tags;
 
       await deleteFeeding(entry.id);
 
@@ -435,9 +506,15 @@ export default function FeedingForm({
       const data = { type, method };
 
       if (amount) data.amount = parseFloat(amount);
-      if (notes.trim()) data.notes = notes.trim();
 
       if (isEdit) {
+        const metadata = applyAlexaMetadata(
+          notes,
+          entry?.tags,
+          alexaMarked,
+        );
+        data.notes = metadata.notes;
+        data.tags = metadata.tags;
         data.start = `${start}:00`;
         data.end = `${end}:00`;
         await api.updateFeeding(entry.id, data);
@@ -445,6 +522,7 @@ export default function FeedingForm({
         return;
       }
 
+      if (notes.trim()) data.notes = notes.trim();
       data.child = childId;
 
       if (timerId && !timerResolved) {
@@ -725,6 +803,59 @@ export default function FeedingForm({
             placeholder="Opcional"
           />
         </FormField>
+
+        {isEdit && (
+          <label
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "flex-start",
+              marginBottom: 14,
+              padding: 11,
+              borderRadius: 11,
+              border: alexaMarked
+                ? `1px solid ${colors.feeding}55`
+                : "1px solid var(--border)",
+              background: alexaMarked
+                ? `${colors.feeding}08`
+                : "var(--bg)",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={alexaMarked}
+              onChange={(event) =>
+                setAlexaMarked(event.target.checked)
+              }
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              <strong
+                style={{
+                  display: "block",
+                  color: "var(--text)",
+                  fontSize: 12,
+                }}
+              >
+                🎙️ Registrada mediante Alexa
+              </strong>
+              <span
+                style={{
+                  display: "block",
+                  marginTop: 3,
+                  color: "var(--text-muted)",
+                  fontSize: 11,
+                  lineHeight: 1.4,
+                }}
+              >
+                Si la desmarcas y guardas, se eliminan la etiqueta
+                Alexa y la nota automática. La toma seguirá siendo
+                editable normalmente.
+              </span>
+            </span>
+          </label>
+        )}
 
         {isEdit && previousFeeding && (
           <div
