@@ -3,8 +3,10 @@ import SectionCard from "./SectionCard";
 import { Icons } from "./Icons";
 import {
   feedingDurationSeconds,
+  feedingSegments,
   formatTime,
   isAlexaFeeding,
+  isPausedFeeding,
   parseDuration,
 } from "../utils/formatters";
 import { colors } from "../utils/colors";
@@ -81,6 +83,8 @@ function buildItems({
     const when = entry?.start || entry?.end;
     if (!when) continue;
     const minutes = Math.round(feedingDurationSeconds(entry) / 60);
+    const segments = feedingSegments(entry);
+    const paused = isPausedFeeding(entry);
     items.push({
       id: `feeding-${entry.id || when}`,
       type: "feeding",
@@ -89,7 +93,7 @@ function buildItems({
       when,
       time: `${formatTime(when)} – ${entry.end ? formatTime(entry.end) : "en curso"}`,
       title: isAlexaFeeding(entry) ? "Toma · 🎙️ Alexa" : "Toma",
-      detail: `${minutes} min${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}`,
+      detail: `${minutes} min${entry?._session ? " efectivos" : ""}${segments > 1 ? ` · ${segments} tramos` : ""}${paused ? " · Pausada" : ""}${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}`,
       entry,
     });
   }

@@ -11,6 +11,7 @@ const AUDIT_PATH = "./api/audit";
 const DASHBOARD_SETTINGS_PATH = "./api/dashboard-settings";
 const MEDICATION_REGIMENS_PATH = "./api/medication-regimens";
 const HANDOFF_PATH = "./api/handoff";
+const FEEDING_SESSION_PATH = "./api/feeding-session";
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}/${endpoint}`;
@@ -49,6 +50,28 @@ export const api = {
     request("feedings/", { method: "POST", body: JSON.stringify(data) }),
   updateFeeding: (id, data) =>
     request(`feedings/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteFeeding: (id) => request(`feedings/${id}/`, { method: "DELETE" }),
+  getFeeding: (id) => request(`feedings/${id}/`),
+  setFeedingSession: async (id, data) => {
+    const response = await fetch(`${FEEDING_SESSION_PATH}/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Feeding session API error ${response.status}`);
+    }
+    return response.json();
+  },
+  deleteFeedingSession: async (id) => {
+    const response = await fetch(`${FEEDING_SESSION_PATH}/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Feeding session API error ${response.status}`);
+    }
+    return response.json();
+  },
 
   // Sleep
   getSleep: (params) => request(`sleep/${qs(params)}`),

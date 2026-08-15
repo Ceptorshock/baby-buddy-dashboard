@@ -98,6 +98,17 @@ def _init_audit_db():
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_handoff_child_time ON handoff_events(child_id, timestamp DESC)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feeding_session_meta (
+                entry_id TEXT PRIMARY KEY,
+                active_seconds INTEGER NOT NULL DEFAULT 0,
+                segments INTEGER NOT NULL DEFAULT 1,
+                paused INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         connection.commit()
 
 
@@ -256,6 +267,75 @@ def _attach_audit(resource: str, payload):
             },
         )
     return payload
+
+
+def _feeding_session_meta(entry_ids: list[str]) -> dict[str, dict]:
+    clean_ids = [str(value) for value in entry_ids if value not in (None, "")]
+    if not clean_ids:
+        return {}
+    placeholders = ",".join("?" for _ in clean_ids)
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        rows = connection.execute(
+            f"SELECT entry_id, active_seconds, segments, paused, updated_at "
+            f"FROM feeding_session_meta WHERE entry_id IN ({placeholders})",
+            clean_ids,
+        ).fetchall()
+    return {
+        str(row[0]): {
+            "active_seconds": max(0, int(row[1] or 0)),
+            "segments": max(1, int(row[2] or 1)),
+            "paused": bool(row[3]),
+            "updated_at": row[4],
+        }
+        for row in rows
+    }
+
+
+def _attach_feeding_session_meta(payload):
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        entries = [item for item in payload["results"] if isinstance(item, dict)]
+    elif isinstance(payload, dict) and payload.get("id") not in (None, ""):
+        entries = [payload]
+    else:
+        return payload
+    metadata = _feeding_session_meta([entry.get("id") for entry in entries])
+    for entry in entries:
+        session = metadata.get(str(entry.get("id")))
+        if session:
+            entry["_session"] = session
+    return payload
+
+
+def _set_feeding_session_meta(entry_id, active_seconds: int, segments: int, paused: bool):
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO feeding_session_meta (entry_id, active_seconds, segments, paused, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(entry_id) DO UPDATE SET
+                active_seconds=excluded.active_seconds,
+                segments=excluded.segments,
+                paused=excluded.paused,
+                updated_at=excluded.updated_at
+            """,
+            (
+                str(entry_id),
+                max(0, int(active_seconds or 0)),
+                max(1, int(segments or 1)),
+                1 if paused else 0,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        connection.commit()
+
+
+def _delete_feeding_session_meta(entry_id):
+    with sqlite3.connect(AUDIT_DB_PATH) as connection:
+        connection.execute(
+            "DELETE FROM feeding_session_meta WHERE entry_id = ?",
+            (str(entry_id),),
+        )
+        connection.commit()
 
 
 def _path_resource_and_id(path: str) -> tuple[str, str | None]:
@@ -1990,7 +2070,7 @@ async def _collect_alerts() -> list[dict]:
         )
         if feedings:
             feeding = feedings[0]
-            feeding_time = _parse_datetime(feeding.get("end") or feeding.get("start"))
+            feeding_time = _parse_datetime(feeding.get("start") or feeding.get("end"))
             if feeding_time:
                 elapsed_minutes = max(0, int((now - feeding_time.astimezone(timezone.utc)).total_seconds() // 60))
                 if elapsed_minutes >= ALERTS_CONFIG["feeding_minutes"]:
@@ -3475,6 +3555,33 @@ async def room_camera(child_id: int):
     )
 
 
+@app.put("/api/feeding-session/{entry_id}")
+async def set_feeding_session(entry_id: int, request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+    try:
+        active_seconds = max(0, int(payload.get("active_seconds", 0) or 0))
+        segments = max(1, int(payload.get("segments", 1) or 1))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid feeding session values")
+    paused = bool(payload.get("paused", False))
+    _set_feeding_session_meta(entry_id, active_seconds, segments, paused)
+    return {
+        "entry_id": entry_id,
+        "active_seconds": active_seconds,
+        "segments": segments,
+        "paused": paused,
+    }
+
+
+@app.delete("/api/feeding-session/{entry_id}")
+async def delete_feeding_session(entry_id: int):
+    _delete_feeding_session_meta(entry_id)
+    return {"deleted": True, "entry_id": entry_id}
+
+
 UNDO_ENDPOINTS = {
     "feeding": "feedings",
     "sleep": "sleep",
@@ -3515,6 +3622,8 @@ async def undo_entry(request: Request):
         raise HTTPException(delete_response.status_code, delete_response.text)
 
     _record_audit(request, "undo", resource, entry_id, before=before_payload, after=None)
+    if entry_type == "feeding":
+        _delete_feeding_session_meta(entry_id)
     result = {"deleted": True, "stock_restored": None, "warning": None}
     if entry_type == "diaper":
         diaper_size = str(payload.get("diaper_size", "") or "").strip()
@@ -3672,11 +3781,17 @@ async def proxy_baby_buddy(path: str, request: Request):
             _record_audit(request, "update", resource, entry_id, before=before_payload, after=after_payload)
         elif request.method == "DELETE":
             _record_audit(request, "delete", resource, entry_id, before=before_payload, after=None)
+            if resource == "feedings" and entry_id:
+                _delete_feeding_session_meta(entry_id)
 
         if request.method == "GET" and isinstance(response_payload, dict):
             response_payload = _attach_audit(resource, response_payload)
+            if resource == "feedings":
+                response_payload = _attach_feeding_session_meta(response_payload)
         elif isinstance(response_payload, dict) and response_payload.get("id") not in (None, ""):
             response_payload = _attach_audit(resource, response_payload)
+            if resource == "feedings":
+                response_payload = _attach_feeding_session_meta(response_payload)
 
     excluded_headers = {"transfer-encoding", "content-encoding", "content-length", "connection", "server"}
     response_headers = {k: v for k, v in response.headers.items() if k.lower() not in excluded_headers}

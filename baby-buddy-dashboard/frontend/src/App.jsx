@@ -5,7 +5,7 @@ import { UnitContext } from "./utils/units";
 import { Icons } from "./components/Icons";
 import { colors } from "./utils/colors";
 import { getAge, formatElapsed } from "./utils/formatters";
-import OverviewTab from "./tabs/OverviewTab";
+import HistoryTab from "./tabs/HistoryTab";
 import GrowthTab from "./tabs/GrowthTab";
 import MoreTab from "./tabs/MoreTab";
 import FeedingForm from "./components/forms/FeedingForm";
@@ -33,13 +33,14 @@ import DiaperStockModal from "./components/DiaperStockModal";
 import HealthSummary from "./components/HealthSummary";
 import DailySummaryCard from "./components/DailySummaryCard";
 import HandoffCard from "./components/HandoffCard";
+import FeedingStatusCard from "./components/FeedingStatusCard";
 import TimerReminderPanel from "./components/TimerReminderPanel";
 import { api } from "./api";
 import "./styles.css";
 
 const TABS = [
   { id: "overview", label: "Ahora", icon: <Icons.Home /> },
-  { id: "activity", label: "Actividad", icon: <Icons.Activity /> },
+  { id: "activity", label: "Historial", icon: <Icons.History /> },
   { id: "health", label: "Salud", icon: <Icons.Heart /> },
   { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
   { id: "more", label: "Más", icon: <Icons.MoreHorizontal /> },
@@ -158,16 +159,62 @@ export default function App() {
     if (!undoItem) return;
     setUndoBusy(true);
     try {
-      const result = await api.undoEntry(undoItem);
+      let message = "Cambio deshecho correctamente.";
+
+      if (undoItem.undoKind === "restore-feeding") {
+        await api.updateFeeding(undoItem.id, undoItem.restore);
+        if (undoItem.restoreSession) {
+          await api.setFeedingSession(undoItem.id, undoItem.restoreSession);
+        } else {
+          await api.deleteFeedingSession(undoItem.id).catch(() => null);
+        }
+        if (undoItem.recreateTimer) {
+          await api.createTimer(undoItem.recreateTimer);
+        }
+        message = "La toma ha vuelto al estado anterior.";
+      } else if (undoItem.undoKind === "restore-feeding-merge") {
+        await api.updateFeeding(undoItem.id, undoItem.restorePrevious);
+        if (undoItem.restorePreviousSession) {
+          await api.setFeedingSession(undoItem.id, undoItem.restorePreviousSession);
+        } else {
+          await api.deleteFeedingSession(undoItem.id).catch(() => null);
+        }
+        const recreated = await api.createFeeding(undoItem.recreateDeleted);
+        if (undoItem.restoreDeletedSession && recreated?.id) {
+          await api.setFeedingSession(recreated.id, undoItem.restoreDeletedSession);
+        }
+        message = "La fusión se ha deshecho y vuelven a aparecer las dos tomas.";
+      } else {
+        const result = await api.undoEntry(undoItem);
+        if (undoItem.recreateTimer) {
+          await api.createTimer(undoItem.recreateTimer);
+        }
+        message = result.warning ||
+          (undoItem.recreateTimer
+            ? "Registro deshecho y temporizador restaurado."
+            : "Registro deshecho correctamente.");
+      }
+
       clearTimeout(undoTimeoutRef.current);
       setUndoItem(null);
-      setUndoMessage(result.warning || "Registro deshecho correctamente.");
+      setUndoMessage(message);
       setTimeout(() => setUndoMessage(""), 6000);
       await data.refetch();
     } catch (error) {
       setUndoMessage(`No se pudo deshacer: ${error.message}`);
     } finally {
       setUndoBusy(false);
+    }
+  };
+
+  const handleContinueFeeding = async (entry) => {
+    if (!entry?.id || timer.activeTimers.length > 0) return;
+    try {
+      await timer.startTimer(`Toma continuación #${entry.id}`);
+      await data.refetch();
+    } catch (error) {
+      setUndoMessage(`No se pudo continuar la toma: ${error.message}`);
+      setTimeout(() => setUndoMessage(""), 6000);
     }
   };
 
@@ -322,7 +369,7 @@ export default function App() {
                 }
               }}
             >
-              Finalizar
+              {timerNameToType(t.name) === "feeding" ? "Pausar / finalizar" : "Finalizar"}
             </button>
             <button
               className="timer-discard-btn"
@@ -375,6 +422,13 @@ export default function App() {
       <main className="tab-content">
         {activeTab === "overview" && (
           <>
+            <FeedingStatusCard
+              feedings={data.weeklyFeedings}
+              activeTimers={timer.activeTimers}
+              feedingAlertMinutes={data.alertsConfig?.feeding_minutes || 180}
+              onContinue={handleContinueFeeding}
+              onEdit={(entry) => setModal({ type: "feeding", entry })}
+            />
             <NowPanel
               weeklyFeedings={data.weeklyFeedings}
               weeklySleep={data.weeklySleep}
@@ -386,7 +440,7 @@ export default function App() {
               data={{ feedings: data.monthlyFeedings, sleep: data.monthlySleep, changes: data.monthlyChanges, tummy: data.monthlyTummyTimes, temperatures: data.monthlyTemperatures, medications: data.monthlyMedications }}
               onOpenHistory={() => setActiveTab("activity")}
             />
-            <HandoffCard childId={data.child?.id} childName={data.child?.first_name} currentUser={data.currentUser} activeTimers={timer.activeTimers} elapsedMap={timer.elapsedMap} />
+            <HandoffCard childId={data.child?.id} childName={data.child?.first_name} currentUser={data.currentUser} activeTimers={timer.activeTimers} elapsedMap={timer.elapsedMap} feedings={data.weeklyFeedings} feedingAlertMinutes={data.alertsConfig?.feeding_minutes || 180} />
             <MedicationCard
               medications={data.medications}
               childId={data.child?.id}
@@ -397,25 +451,17 @@ export default function App() {
             />
             <div className="now-quick-hint">
               <span>Usa <strong>+</strong> para registrar tomas, pañales, sueño, medicación o medidas.</span>
-              <button type="button" onClick={() => setActiveTab("activity")}>Ver actividad de hoy</button>
+              <button type="button" onClick={() => setActiveTab("activity")}>Abrir historial</button>
             </div>
           </>
         )}
         {activeTab === "activity" && (
-          <OverviewTab
-            feedings={data.feedings}
-            weeklyFeedings={data.weeklyFeedings}
-            sleepEntries={data.sleepEntries}
-            weeklySleep={data.weeklySleep}
-            changes={data.changes}
-            tummyTimes={data.tummyTimes}
-            weeklyTummyTimes={data.weeklyTummyTimes}
-            monthlyFeedings={data.monthlyFeedings}
-            monthlySleep={data.monthlySleep}
-            monthlyChanges={data.monthlyChanges}
-            monthlyTummyTimes={data.monthlyTummyTimes}
-            monthlyTemperatures={data.monthlyTemperatures}
-            monthlyMedications={data.monthlyMedications}
+          <HistoryTab
+            feedings={data.monthlyFeedings}
+            sleep={data.monthlySleep}
+            changes={data.monthlyChanges}
+            tummy={data.monthlyTummyTimes}
+            medications={data.monthlyMedications}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
         )}

@@ -4,6 +4,7 @@ import { Icons } from "./Icons";
 import { useUnits } from "../utils/units";
 import {
   feedingDurationSeconds,
+  feedingMethodLabel,
   formatTime,
   parseDuration,
 } from "../utils/formatters";
@@ -77,6 +78,8 @@ export default function HandoffCard({
   currentUser,
   activeTimers = [],
   elapsedMap = {},
+  feedings = [],
+  feedingAlertMinutes = 180,
 }) {
   const units = useUnits();
   const [state, setState] = useState(null);
@@ -224,6 +227,24 @@ export default function HandoffCard({
   const summary = state.summary || {};
   const currentActivity = activeTimers[0] || null;
   const nextMedication = state.next_medication || null;
+  const sortedFeedings = [...(feedings || [])]
+    .filter((entry) => entry?.start || entry?.end)
+    .sort((a, b) => new Date(b.start || b.end).getTime() - new Date(a.start || a.end).getTime());
+  const latestOverallFeeding = sortedFeedings[0] || null;
+  const latestBreast = sortedFeedings.find((entry) =>
+    ["left breast", "right breast", "both breasts"].includes(String(entry?.method || "").toLowerCase()),
+  ) || null;
+  const nextFeedingReference = latestOverallFeeding?.start
+    ? new Date(new Date(latestOverallFeeding.start).getTime() + Number(feedingAlertMinutes || 180) * 60000)
+    : null;
+  const referenceDeltaMinutes = nextFeedingReference
+    ? Math.round((nextFeedingReference.getTime() - Date.now()) / 60000)
+    : null;
+  const referenceText = referenceDeltaMinutes == null
+    ? "Sin referencia"
+    : referenceDeltaMinutes >= 0
+      ? `faltan ${humanMinutes(referenceDeltaMinutes)}`
+      : `hace ${humanMinutes(Math.abs(referenceDeltaMinutes))}`;
 
   return (
     <section
@@ -409,7 +430,7 @@ export default function HandoffCard({
             </div>
 
             <div>
-              <span>Próximo</span>
+              <span>Próxima medicación</span>
               <strong>
                 {nextMedication
                   ? `${
@@ -425,6 +446,24 @@ export default function HandoffCard({
                       minute: "2-digit",
                     })}`
                   : "Sin medicación programada"}
+              </strong>
+            </div>
+
+            <div>
+              <span>Próxima toma orientativa</span>
+              <strong>
+                {nextFeedingReference
+                  ? `${formatTime(nextFeedingReference)} · ${referenceText}`
+                  : "Sin toma anterior"}
+              </strong>
+            </div>
+
+            <div>
+              <span>Último pecho usado</span>
+              <strong>
+                {latestBreast
+                  ? `${feedingMethodLabel(latestBreast.method)} · ${formatTime(latestBreast.start || latestBreast.end)}`
+                  : "Sin registro"}
               </strong>
             </div>
           </div>
