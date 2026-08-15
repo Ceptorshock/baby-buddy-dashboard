@@ -276,13 +276,15 @@ export default function App() {
   };
 
   const handleContinueFeeding = async (entry) => {
-    if (!entry?.id || timer.activeTimers.length > 0) return;
+    if (!entry?.id || timer.activeTimers.length > 0) return false;
     try {
       await timer.startTimer(`Toma continuación #${entry.id}`);
       await data.refetch();
+      return true;
     } catch (error) {
       setUndoMessage(`No se pudo continuar la toma: ${error.message}`);
       setTimeout(() => setUndoMessage(""), 6000);
+      return false;
     }
   };
 
@@ -313,6 +315,7 @@ export default function App() {
           timer={timer}
           onOpenForm={setModal}
           onCreated={handleFormDone}
+          onContinueFeeding={handleContinueFeeding}
           onDisable={() => setNightModeSuppressed(true)}
         />
       )}
