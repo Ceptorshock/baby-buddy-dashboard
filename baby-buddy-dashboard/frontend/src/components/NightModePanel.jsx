@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icons } from "./Icons";
 import { api } from "../api";
-import { formatElapsed } from "../utils/formatters";
+import {
+  feedingDurationSeconds,
+  feedingMethodLabel,
+  feedingSegments,
+  formatElapsed,
+  formatTime,
+  isAlexaFeeding,
+  isPausedFeeding,
+} from "../utils/formatters";
 import {
   describeRegimen,
   effectiveMedicationEntry,
@@ -30,6 +38,35 @@ function clock(date) {
 function doseText(entry) {
   if (entry?.dosage === null || entry?.dosage === undefined || entry?.dosage === "") return "";
   return `${entry.dosage} ${entry.dosage_unit || ""}`.trim();
+}
+
+function latestBy(entries, field) {
+  return [...(entries || [])]
+    .filter((item) => item?.[field])
+    .sort((a, b) => new Date(b[field]).getTime() - new Date(a[field]).getTime())[0] || null;
+}
+
+function durationText(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (value < 60) return `${value} min`;
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return `${hours} h${rest ? ` ${rest} min` : ""}`;
+}
+
+function relativeTo(target, now) {
+  if (!target) return "Sin referencia";
+  const minutes = Math.round((target.getTime() - now.getTime()) / 60000);
+  const text = durationText(Math.abs(minutes));
+  return minutes >= 0 ? `faltan ${text}` : `hace ${text}`;
+}
+
+function diaperText(entry) {
+  if (!entry) return "Sin pañales registrados";
+  if (entry.wet && entry.solid) return "Pis y caca";
+  if (entry.wet) return "Pis";
+  if (entry.solid) return "Caca";
+  return "Cambio";
 }
 
 function getActiveRegimens(medications, regimenMap, now, advanceMinutes) {
@@ -87,7 +124,7 @@ function getActiveRegimens(medications, regimenMap, now, advanceMinutes) {
   });
 }
 
-export default function NightModePanel({ data, timer, onOpenForm, onCreated, onDisable }) {
+export default function NightModePanel({ data, timer, onOpenForm, onCreated, onContinueFeeding, onDisable }) {
   const [showDiaper, setShowDiaper] = useState(false);
   const [savingDiaper, setSavingDiaper] = useState(false);
   const [savingMedication, setSavingMedication] = useState(null);
@@ -222,6 +259,43 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
 
   const feeding = activeByType("feeding");
   const sleep = activeByType("sleep");
+  const latestFeeding = useMemo(
+    () => latestBy(data.weeklyFeedings, "start"),
+    [data.weeklyFeedings],
+  );
+  const latestDiaper = useMemo(
+    () => latestBy(data.recentChanges, "time"),
+    [data.recentChanges],
+  );
+  const feedingAlertMinutes = Number(data.alertsConfig?.feeding_minutes || 180);
+  const referenceStart = feeding?.start || (latestFeeding?.start ? new Date(latestFeeding.start) : null);
+  const nextFeedingAt = referenceStart
+    ? new Date(referenceStart.getTime() + feedingAlertMinutes * 60000)
+    : null;
+  const latestFeedingMinutes = latestFeeding
+    ? Math.max(0, Math.round(feedingDurationSeconds(latestFeeding) / 60))
+    : 0;
+  const latestSegments = latestFeeding ? feedingSegments(latestFeeding) : 0;
+  const latestPaused = latestFeeding ? isPausedFeeding(latestFeeding) : false;
+  const sinceLatestEnd = latestFeeding?.end
+    ? (now.getTime() - new Date(latestFeeding.end).getTime()) / 60000
+    : Infinity;
+  const canContinueLatest = Boolean(
+    latestFeeding &&
+      !feeding &&
+      timer.activeTimers.length === 0 &&
+      (latestPaused || (sinceLatestEnd >= 0 && sinceLatestEnd <= 90)),
+  );
+
+  const continueLatest = async () => {
+    if (!canContinueLatest || !onContinueFeeding) return;
+    vibrate();
+    const started = await onContinueFeeding(latestFeeding);
+    if (started) {
+      setMessage("Continuando la última toma");
+      setTimeout(() => setMessage(""), 2500);
+    }
+  };
 
   return (
     <div className="night-mode-screen">
@@ -240,6 +314,97 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onD
           {sleep && <div><Icons.Moon /> Sueño · <strong>{formatElapsed(timer.elapsedMap[sleep.id] || 0)}</strong></div>}
         </div>
       )}
+
+      <section
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: 16,
+          background: "var(--card-bg)",
+          padding: 14,
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 10 }}>
+          <div>
+            <div className="night-kicker">REFERENCIA RÁPIDA</div>
+            <strong style={{ color: "var(--text)", fontSize: 15 }}>Lo importante sin salir del modo noche</strong>
+          </div>
+          {latestPaused && !feeding && (
+            <span style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800 }}>⏸️ Toma pausada</span>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: 8 }}>
+          <div style={{ padding: 11, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+            <span style={{ display: "block", fontSize: 10, color: "var(--text-dim)", fontWeight: 800 }}>ÚLTIMA TOMA</span>
+            {latestFeeding ? (
+              <>
+                <strong style={{ display: "block", marginTop: 4, color: "var(--text)", fontSize: 14 }}>
+                  {formatTime(latestFeeding.start)}–{formatTime(latestFeeding.end)}
+                </strong>
+                <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)", lineHeight: 1.35 }}>
+                  {latestFeedingMinutes} min{latestFeeding?._session ? " efectivos" : ""}
+                  {latestSegments > 1 ? ` · ${latestSegments} tramos` : ""}
+                  {latestFeeding.method ? ` · ${feedingMethodLabel(latestFeeding.method)}` : ""}
+                  {isAlexaFeeding(latestFeeding) ? " · 🎙️ Alexa" : ""}
+                </small>
+              </>
+            ) : (
+              <strong style={{ display: "block", marginTop: 4, color: "var(--text-muted)", fontSize: 13 }}>Sin tomas registradas</strong>
+            )}
+          </div>
+
+          <div style={{ padding: 11, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+            <span style={{ display: "block", fontSize: 10, color: "var(--text-dim)", fontWeight: 800 }}>PRÓXIMA TOMA ORIENTATIVA</span>
+            <strong style={{ display: "block", marginTop: 4, color: "var(--text)", fontSize: 14 }}>
+              {nextFeedingAt ? clock(nextFeedingAt) : "—"}
+            </strong>
+            <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)", lineHeight: 1.35 }}>
+              {nextFeedingAt ? `${feeding ? "Desde el inicio de la toma actual" : "Desde el inicio de la última toma"} · ${relativeTo(nextFeedingAt, now)}` : "Sin referencia todavía"}
+            </small>
+          </div>
+
+          <div style={{ padding: 11, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+            <span style={{ display: "block", fontSize: 10, color: "var(--text-dim)", fontWeight: 800 }}>ÚLTIMO PAÑAL</span>
+            <strong style={{ display: "block", marginTop: 4, color: "var(--text)", fontSize: 14 }}>
+              {latestDiaper ? `${clock(latestDiaper.time)} · ${diaperText(latestDiaper)}` : "—"}
+            </strong>
+            <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)" }}>
+              {latestDiaper ? relativeTo(new Date(latestDiaper.time), now).replace("hace ", "Hace ") : "Sin registro"}
+            </small>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          {latestFeeding && (
+            <button
+              type="button"
+              onClick={() => onOpenForm({ type: "feeding", entry: latestFeeding })}
+              style={{ flex: "1 1 140px", border: "1px solid var(--border)", borderRadius: 11, padding: "10px 12px", background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontWeight: 800 }}
+            >
+              ✎ Corregir última toma
+            </button>
+          )}
+          {canContinueLatest && (
+            <button
+              type="button"
+              onClick={continueLatest}
+              style={{ flex: "1 1 150px", border: 0, borderRadius: 11, padding: "10px 12px", background: "#F59E0B", color: "#000", fontFamily: "inherit", fontWeight: 900 }}
+            >
+              ▶️ Continuar última toma
+            </button>
+          )}
+          {latestDiaper && (
+            <button
+              type="button"
+              onClick={() => onOpenForm({ type: "diaper", entry: latestDiaper })}
+              style={{ flex: "1 1 120px", border: "1px solid var(--border)", borderRadius: 11, padding: "10px 12px", background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontWeight: 800 }}
+            >
+              ✎ Corregir pañal
+            </button>
+          )}
+        </div>
+      </section>
 
       <div className="night-action-grid">
         <button className={`night-action ${feeding ? "is-active" : ""}`} onClick={() => toggleTimer("feeding")}>

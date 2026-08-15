@@ -5,7 +5,7 @@ import { UnitContext } from "./utils/units";
 import { Icons } from "./components/Icons";
 import { colors } from "./utils/colors";
 import { getAge, formatElapsed } from "./utils/formatters";
-import HistoryTab from "./tabs/HistoryTab";
+import OverviewTab from "./tabs/OverviewTab";
 import GrowthTab from "./tabs/GrowthTab";
 import MoreTab from "./tabs/MoreTab";
 import FeedingForm from "./components/forms/FeedingForm";
@@ -35,12 +35,13 @@ import DailySummaryCard from "./components/DailySummaryCard";
 import HandoffCard from "./components/HandoffCard";
 import FeedingStatusCard from "./components/FeedingStatusCard";
 import TimerReminderPanel from "./components/TimerReminderPanel";
+import { EntryModalActionsProvider } from "./components/EntryModalActionsContext";
 import { api } from "./api";
 import "./styles.css";
 
 const TABS = [
   { id: "overview", label: "Ahora", icon: <Icons.Home /> },
-  { id: "activity", label: "Historial", icon: <Icons.History /> },
+  { id: "activity", label: "Actividad", icon: <Icons.Activity /> },
   { id: "health", label: "Salud", icon: <Icons.Heart /> },
   { id: "growth", label: "Crecimiento", icon: <Icons.TrendUp /> },
   { id: "more", label: "Más", icon: <Icons.MoreHorizontal /> },
@@ -72,6 +73,18 @@ const ACTION_GROUPS = [
     ],
   },
 ];
+
+const DELETE_LABELS = {
+  feeding: "toma",
+  sleep: "registro de sueño",
+  diaper: "cambio de pañal",
+  medication: "medicamento",
+  tummy: "tiempo boca abajo",
+  temp: "temperatura",
+  weight: "peso",
+  height: "altura",
+  note: "nota",
+};
 
 const TIMER_TYPES = [
   { id: "feeding", label: "Toma", icon: <Icons.Bottle />, color: colors.feeding },
@@ -125,6 +138,7 @@ export default function App() {
   const [editingTimerId, setEditingTimerId] = useState(null);
   const [undoItem, setUndoItem] = useState(null);
   const [undoBusy, setUndoBusy] = useState(false);
+  const [deletingEntry, setDeletingEntry] = useState(false);
   const [undoMessage, setUndoMessage] = useState("");
   const [nightModeSuppressed, setNightModeSuppressed] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -155,13 +169,67 @@ export default function App() {
   }, [inNightWindow, nightModeSuppressed]);
   const nightModeActive = Boolean(data.nightModeConfig?.enabled && inNightWindow && !nightModeSuppressed);
 
+  const handleDeleteCurrentEntry = async () => {
+    const entry = modal?.entry;
+    const type = modal?.type;
+    const label = DELETE_LABELS[type];
+    if (!entry?.id || !label || deletingEntry) return;
+
+    const confirmed = window.confirm(
+      `¿Eliminar definitivamente este ${label}?\n\nPodrás deshacerlo durante unos segundos.`,
+    );
+    if (!confirmed) return;
+
+    let restoreDiaperStock = false;
+    if (type === "diaper") {
+      const size = data.diaperSize?.state || "la talla activa";
+      restoreDiaperStock = window.confirm(
+        `¿Devolver también 1 pañal a Grocy usando ${size}?\n\nAceptar = borrar el registro y reponer 1 unidad.\nCancelar = borrar solo el registro de Baby Buddy.`,
+      );
+    }
+
+    setDeletingEntry(true);
+    try {
+      const result = await api.deleteEntry({
+        type,
+        id: entry.id,
+        childId: data.child?.id,
+        diaper_size: type === "diaper" ? data.diaperSize?.state : "",
+        restore_diaper_stock: restoreDiaperStock,
+      });
+      closeModal();
+      await data.refetch();
+      clearTimeout(undoTimeoutRef.current);
+      setUndoMessage("");
+      setUndoItem({
+        type,
+        id: entry.id,
+        label: `${label.charAt(0).toUpperCase()}${label.slice(1)} eliminado`,
+        successMessage: result.warning
+          ? `${label.charAt(0).toUpperCase()}${label.slice(1)} eliminado · ${result.warning}`
+          : `${label.charAt(0).toUpperCase()}${label.slice(1)} eliminado`,
+        undoKind: "restore-deleted-entry",
+        deleted: result,
+      });
+      undoTimeoutRef.current = setTimeout(() => setUndoItem(null), 18000);
+    } catch (error) {
+      setUndoMessage(`No se pudo eliminar: ${error.message}`);
+      setTimeout(() => setUndoMessage(""), 7000);
+    } finally {
+      setDeletingEntry(false);
+    }
+  };
+
   const handleUndo = async () => {
     if (!undoItem) return;
     setUndoBusy(true);
     try {
       let message = "Cambio deshecho correctamente.";
 
-      if (undoItem.undoKind === "restore-feeding") {
+      if (undoItem.undoKind === "restore-deleted-entry") {
+        const restored = await api.restoreDeletedEntry(undoItem.deleted);
+        message = restored?.warning || "Registro recuperado correctamente.";
+      } else if (undoItem.undoKind === "restore-feeding") {
         await api.updateFeeding(undoItem.id, undoItem.restore);
         if (undoItem.restoreSession) {
           await api.setFeedingSession(undoItem.id, undoItem.restoreSession);
@@ -208,13 +276,15 @@ export default function App() {
   };
 
   const handleContinueFeeding = async (entry) => {
-    if (!entry?.id || timer.activeTimers.length > 0) return;
+    if (!entry?.id || timer.activeTimers.length > 0) return false;
     try {
       await timer.startTimer(`Toma continuación #${entry.id}`);
       await data.refetch();
+      return true;
     } catch (error) {
       setUndoMessage(`No se pudo continuar la toma: ${error.message}`);
       setTimeout(() => setUndoMessage(""), 6000);
+      return false;
     }
   };
 
@@ -229,6 +299,15 @@ export default function App() {
 
   return (
     <UnitContext.Provider value={data.unitSystem}>
+      <EntryModalActionsProvider
+        value={{
+          entry: modal?.entry || null,
+          type: modal?.type || null,
+          canDelete: Boolean(modal?.entry?.id && DELETE_LABELS[modal?.type] && !modal?.regimenOnly),
+          deleting: deletingEntry,
+          onDelete: handleDeleteCurrentEntry,
+        }}
+      >
     <div className={`app${nightModeActive ? " night-mode-active" : ""}`}>
       {nightModeActive && (
         <NightModePanel
@@ -236,6 +315,7 @@ export default function App() {
           timer={timer}
           onOpenForm={setModal}
           onCreated={handleFormDone}
+          onContinueFeeding={handleContinueFeeding}
           onDisable={() => setNightModeSuppressed(true)}
         />
       )}
@@ -451,17 +531,25 @@ export default function App() {
             />
             <div className="now-quick-hint">
               <span>Usa <strong>+</strong> para registrar tomas, pañales, sueño, medicación o medidas.</span>
-              <button type="button" onClick={() => setActiveTab("activity")}>Abrir historial</button>
+              <button type="button" onClick={() => setActiveTab("activity")}>Abrir actividad</button>
             </div>
           </>
         )}
         {activeTab === "activity" && (
-          <HistoryTab
-            feedings={data.monthlyFeedings}
-            sleep={data.monthlySleep}
-            changes={data.monthlyChanges}
-            tummy={data.monthlyTummyTimes}
-            medications={data.monthlyMedications}
+          <OverviewTab
+            feedings={data.feedings}
+            weeklyFeedings={data.weeklyFeedings}
+            sleepEntries={data.sleepEntries}
+            weeklySleep={data.weeklySleep}
+            changes={data.changes}
+            tummyTimes={data.tummyTimes}
+            weeklyTummyTimes={data.weeklyTummyTimes}
+            monthlyFeedings={data.monthlyFeedings}
+            monthlySleep={data.monthlySleep}
+            monthlyChanges={data.monthlyChanges}
+            monthlyTummyTimes={data.monthlyTummyTimes}
+            monthlyTemperatures={data.monthlyTemperatures}
+            monthlyMedications={data.monthlyMedications}
             onEditEntry={(type, entry) => setModal({ type, entry })}
           />
         )}
@@ -730,6 +818,7 @@ export default function App() {
         />
       )}
     </div>
+      </EntryModalActionsProvider>
     </UnitContext.Provider>
   );
 }
