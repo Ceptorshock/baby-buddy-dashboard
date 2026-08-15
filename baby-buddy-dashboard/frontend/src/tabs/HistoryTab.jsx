@@ -64,8 +64,11 @@ export default function HistoryTab({
   sleep = [],
   changes = [],
   medications = [],
+  temperatures = [],
   tummy = [],
   onEditEntry,
+  showSummary = true,
+  showHeader = true,
 }) {
   const [range, setRange] = useState("today");
   const [selectedDate, setSelectedDate] = useState("");
@@ -76,9 +79,10 @@ export default function HistoryTab({
       sleep: filterEntries(sleep, "start", range, selectedDate),
       changes: filterEntries(changes, "time", range, selectedDate),
       medications: filterEntries(medications, "time", range, selectedDate),
+      temperatures: filterEntries(temperatures, "time", range, selectedDate),
       tummy: filterEntries(tummy, "start", range, selectedDate),
     }),
-    [feedings, sleep, changes, medications, tummy, range, selectedDate],
+    [feedings, sleep, changes, medications, temperatures, tummy, range, selectedDate],
   );
 
   const feedingMinutes = Math.round(
@@ -90,12 +94,14 @@ export default function HistoryTab({
 
   return (
     <div className="fade-in">
-      <div className="section-title-row" style={{ alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <span className="eyebrow">HISTORIAL</span>
-          <h2>Consulta y corrige cualquier registro</h2>
+      {showHeader && (
+        <div className="section-title-row" style={{ alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <span className="eyebrow">HISTORIAL</span>
+            <h2>Consulta y corrige cualquier registro</h2>
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         {RANGES.map((item) => (
@@ -120,26 +126,31 @@ export default function HistoryTab({
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 14 }}>
-        {[
-          ["🍼 Tomas", filtered.feedings.length, `${feedingMinutes} min efectivos`],
-          ["🧷 Pañales", filtered.changes.length, "cambios"],
-          ["😴 Sueño", filtered.sleep.length, `${Math.floor(sleepMinutes / 60)} h ${sleepMinutes % 60} min`],
-          ["💊 Medicación", filtered.medications.length, "dosis"],
-        ].map(([label, value, detail]) => (
-          <div key={label} style={{ border: "1px solid var(--border)", borderRadius: 12, background: "var(--card-bg)", padding: 11 }}>
-            <span style={{ display: "block", color: "var(--text-muted)", fontSize: 11 }}>{label}</span>
-            <strong style={{ display: "block", marginTop: 2, color: "var(--text)", fontSize: 18 }}>{value}</strong>
-            <small style={{ color: "var(--text-dim)" }}>{detail}</small>
-          </div>
-        ))}
-      </div>
+      {showSummary && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 14 }}>
+          {[
+            ["🍼 Tomas", filtered.feedings.length, `${feedingMinutes} min efectivos`],
+            ["🧷 Pañales", filtered.changes.length, "cambios"],
+            ["😴 Sueño", filtered.sleep.length, `${Math.floor(sleepMinutes / 60)} h ${sleepMinutes % 60} min`],
+            ["🤸 Boca abajo", filtered.tummy.length, "sesiones"],
+            ["💊 Medicación", filtered.medications.length, "dosis"],
+            ["🌡️ Temperatura", filtered.temperatures.length, "mediciones"],
+          ].map(([label, value, detail]) => (
+            <div key={label} style={{ border: "1px solid var(--border)", borderRadius: 12, background: "var(--card-bg)", padding: 11 }}>
+              <span style={{ display: "block", color: "var(--text-muted)", fontSize: 11 }}>{label}</span>
+              <strong style={{ display: "block", marginTop: 2, color: "var(--text)", fontSize: 18 }}>{value}</strong>
+              <small style={{ color: "var(--text-dim)" }}>{detail}</small>
+            </div>
+          ))}
+        </div>
+      )}
 
       <ActivityTimeline
         feedings={filtered.feedings}
         sleep={filtered.sleep}
         changes={filtered.changes}
         medications={filtered.medications}
+        temperatures={filtered.temperatures}
         tummy={filtered.tummy}
         onEditEntry={onEditEntry}
       />
