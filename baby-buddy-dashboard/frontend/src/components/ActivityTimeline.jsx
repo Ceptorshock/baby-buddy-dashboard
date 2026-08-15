@@ -4,6 +4,7 @@ import { Icons } from "./Icons";
 import {
   feedingDurationSeconds,
   formatTime,
+  isAlexaFeeding,
   parseDuration,
 } from "../utils/formatters";
 import { colors } from "../utils/colors";
@@ -87,7 +88,7 @@ function buildItems({
       color: colors.feeding,
       when,
       time: `${formatTime(when)} – ${entry.end ? formatTime(entry.end) : "en curso"}`,
-      title: "Toma",
+      title: isAlexaFeeding(entry) ? "Toma · 🎙️ Alexa" : "Toma",
       detail: `${minutes} min${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}`,
       entry,
     });

@@ -22,6 +22,29 @@ function localizeFeedingValue(value, dictionary) {
   return dictionary[String(value).toLowerCase()] || value;
 }
 
+const ALEXA_NOTE_MARKERS = [
+  "registrado mediante alexa",
+  "registrado por alexa",
+  "controlado por alexa",
+];
+
+function feedingTagName(tag) {
+  if (typeof tag === "string") return tag;
+  return tag?.name || tag?.label || tag?.value || "";
+}
+
+export function isAlexaFeeding(feeding) {
+  if (!feeding) return false;
+
+  const tagged = (Array.isArray(feeding.tags) ? feeding.tags : []).some(
+    (tag) => feedingTagName(tag).trim().toLowerCase() === "alexa",
+  );
+  if (tagged) return true;
+
+  const notes = String(feeding.notes || "").toLowerCase();
+  return ALEXA_NOTE_MARKERS.some((marker) => notes.includes(marker));
+}
+
 export function getAge(birthDate) {
   const birth = new Date(birthDate);
   const now = new Date();
@@ -148,10 +171,13 @@ export function toFeedingTimeline(feedings, volumeUnit = "mL") {
     const startText = formatTime(startValue);
     const endText = f.end ? formatTime(f.end) : "en curso";
     const durationText = formatFeedingDuration(f);
+    const alexa = isAlexaFeeding(f);
 
     return {
       time: `${startText}–${f.end ? endText : "…"}`,
-      label: [amount, description].filter(Boolean).join(" "),
+      label: [alexa ? "🎙️ Alexa ·" : "", amount, description]
+        .filter(Boolean)
+        .join(" "),
       detail: `Inicio ${startText} · Fin ${endText} · Duración ${durationText}${startValue ? ` · ${timeAgo(startValue)}` : ""}`,
       amount: f.amount || 0,
       type: f.type,
