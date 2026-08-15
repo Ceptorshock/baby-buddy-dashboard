@@ -45,6 +45,34 @@ export function isAlexaFeeding(feeding) {
   return ALEXA_NOTE_MARKERS.some((marker) => notes.includes(marker));
 }
 
+export function feedingSession(feeding) {
+  const raw = feeding?._session;
+  if (!raw || typeof raw !== "object") return null;
+  const activeSeconds = Number(raw.active_seconds);
+  const segments = Number(raw.segments);
+  return {
+    active_seconds: Number.isFinite(activeSeconds) ? Math.max(0, Math.round(activeSeconds)) : null,
+    segments: Number.isFinite(segments) ? Math.max(1, Math.round(segments)) : 1,
+    paused: Boolean(raw.paused),
+  };
+}
+
+export function isPausedFeeding(feeding) {
+  return Boolean(feedingSession(feeding)?.paused);
+}
+
+export function feedingSegments(feeding) {
+  return feedingSession(feeding)?.segments || 1;
+}
+
+export function feedingMethodLabel(value) {
+  return localizeFeedingValue(value, FEEDING_METHODS);
+}
+
+export function feedingTypeLabel(value) {
+  return localizeFeedingValue(value, FEEDING_TYPES);
+}
+
 export function getAge(birthDate) {
   const birth = new Date(birthDate);
   const now = new Date();
@@ -124,6 +152,11 @@ export function formatDuration(durationStr) {
 export function feedingDurationSeconds(feeding) {
   if (!feeding) return 0;
 
+  const session = feedingSession(feeding);
+  if (session?.active_seconds != null) {
+    return session.active_seconds;
+  }
+
   if (feeding.start && feeding.end) {
     const start = new Date(feeding.start);
     const end = new Date(feeding.end);
@@ -164,21 +197,26 @@ export function formatFeedingDuration(feeding) {
 export function toFeedingTimeline(feedings, volumeUnit = "mL") {
   return feedings.map((f) => {
     const amount = f.amount ? `${f.amount} ${volumeUnit}` : "";
-    const method = localizeFeedingValue(f.method, FEEDING_METHODS);
-    const type = localizeFeedingValue(f.type, FEEDING_TYPES);
+    const method = feedingMethodLabel(f.method);
+    const type = feedingTypeLabel(f.type);
     const description = method || type || translate("action.feeding");
     const startValue = f.start || f.end;
     const startText = formatTime(startValue);
     const endText = f.end ? formatTime(f.end) : "en curso";
     const durationText = formatFeedingDuration(f);
     const alexa = isAlexaFeeding(f);
+    const session = feedingSession(f);
+    const sessionParts = [];
+    if (session?.segments > 1) sessionParts.push(`${session.segments} tramos`);
+    if (session?.paused) sessionParts.push("pausada");
+    const effective = session ? " efectivos" : "";
 
     return {
       time: `${startText}–${f.end ? endText : "…"}`,
       label: [alexa ? "🎙️ Alexa ·" : "", amount, description]
         .filter(Boolean)
         .join(" "),
-      detail: `Inicio ${startText} · Fin ${endText} · Duración ${durationText}${startValue ? ` · ${timeAgo(startValue)}` : ""}`,
+      detail: `Inicio ${startText} · Fin ${endText} · Duración ${durationText}${effective}${sessionParts.length ? ` · ${sessionParts.join(" · ")}` : ""}${startValue ? ` · ${timeAgo(startValue)}` : ""}`,
       amount: f.amount || 0,
       type: f.type,
       method: f.method,
