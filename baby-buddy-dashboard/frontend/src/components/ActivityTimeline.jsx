@@ -17,6 +17,7 @@ const FILTERS = [
   { id: "sleep", label: "😴" },
   { id: "diaper", label: "🧷" },
   { id: "medication", label: "💊" },
+  { id: "temp", label: "🌡️" },
   { id: "tummy", label: "🤸" },
 ];
 
@@ -75,6 +76,7 @@ function buildItems({
   sleep = [],
   changes = [],
   medications = [],
+  temperatures = [],
   tummy = [],
 }) {
   const items = [];
@@ -151,6 +153,21 @@ function buildItems({
     });
   }
 
+  for (const entry of temperatures) {
+    if (!entry?.time) continue;
+    items.push({
+      id: `temp-${entry.id || entry.time}`,
+      type: "temp",
+      icon: "🌡️",
+      color: colors.temp,
+      when: entry.time,
+      time: formatTime(entry.time),
+      title: "Temperatura",
+      detail: entry.temperature == null ? "Sin valor" : `${Number(entry.temperature).toFixed(1)} °C`,
+      entry,
+    });
+  }
+
   for (const entry of tummy) {
     if (!entry?.start) continue;
     const minutes = Math.round(parseDuration(entry.duration) * 60);
@@ -194,6 +211,7 @@ export default function ActivityTimeline({
   sleep = [],
   changes = [],
   medications = [],
+  temperatures = [],
   tummy = [],
   onEditEntry,
 }) {
@@ -207,9 +225,10 @@ export default function ActivityTimeline({
         sleep,
         changes,
         medications,
+        temperatures,
         tummy,
       }),
-    [feedings, sleep, changes, medications, tummy],
+    [feedings, sleep, changes, medications, temperatures, tummy],
   );
 
   const filtered =

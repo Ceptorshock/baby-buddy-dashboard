@@ -18,6 +18,7 @@ import ChartDetailBar from "../components/ChartDetailBar";
 import DayActivitiesModal from "../components/DayActivitiesModal";
 import DailySummaryHistory from "../components/DailySummaryHistory";
 import ActivityTimeline from "../components/ActivityTimeline";
+import HistoryTab from "./HistoryTab";
 import BreastfeedingSummary from "../components/BreastfeedingSummary";
 import { Icons } from "../components/Icons";
 import { colors } from "../utils/colors";
@@ -132,7 +133,7 @@ export default function OverviewTab({
   onEditEntry,
 }) {
   const units = useUnits();
-  const [activitySection, setActivitySection] = useState("records");
+  const [activitySection, setActivitySection] = useState("history");
   const [expanded, setExpanded] = useState({});
   const [dayModal, setDayModal] = useState(null);
   const [selectedBar, setSelectedBar] = useState(null);
@@ -610,6 +611,20 @@ export default function OverviewTab({
         )}
       </SectionCard>
     </div>
+  );
+
+  const historyContent = (
+    <HistoryTab
+      feedings={monthlyFeedings}
+      sleep={monthlySleep}
+      changes={monthlyChanges}
+      medications={monthlyMedications}
+      temperatures={monthlyTemperatures}
+      tummy={monthlyTummyTimes}
+      onEditEntry={onEditEntry}
+      showSummary
+      showHeader={false}
+    />
   );
 
   const timelineContent = (
@@ -1285,6 +1300,9 @@ export default function OverviewTab({
       </div>
 
       {/* Primero: la fotografía rápida de HOY */}
+      <div style={{ marginBottom: 7 }}>
+        <span className="eyebrow">HOY</span>
+      </div>
       <div
         style={{
           display: "grid",
@@ -1360,18 +1378,18 @@ export default function OverviewTab({
       >
         <button
           type="button"
-          style={tabButton(activitySection === "records")}
-          onClick={() => setActivitySection("records")}
+          style={tabButton(activitySection === "history")}
+          onClick={() => setActivitySection("history")}
         >
-          Registros
+          Historial
         </button>
 
         <button
           type="button"
-          style={tabButton(activitySection === "timeline")}
-          onClick={() => setActivitySection("timeline")}
+          style={tabButton(activitySection === "records")}
+          onClick={() => setActivitySection("records")}
         >
-          Cronología
+          Recientes
         </button>
 
         <button
@@ -1391,9 +1409,8 @@ export default function OverviewTab({
         </button>
       </div>
 
+      {activitySection === "history" && historyContent}
       {activitySection === "records" && recordsContent}
-
-      {activitySection === "timeline" && timelineContent}
       {activitySection === "night" && nightContent}
       {activitySection === "summaries" && summariesContent}
 

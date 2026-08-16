@@ -3594,6 +3594,177 @@ UNDO_ENDPOINTS = {
     "medication": "medication",
 }
 
+RESTORE_FIELDS = {
+    "feeding": ("child", "start", "end", "type", "method", "amount", "notes", "tags"),
+    "sleep": ("child", "start", "end", "nap", "notes", "tags"),
+    "diaper": ("child", "time", "wet", "solid", "color", "amount", "notes", "tags"),
+    "tummy": ("child", "start", "end", "milestone", "tags"),
+    "temp": ("child", "temperature", "time", "notes", "tags"),
+    "weight": ("child", "weight", "date", "notes", "tags"),
+    "height": ("child", "height", "date", "notes", "tags"),
+    "note": ("child", "note", "time", "tags"),
+    "medication": ("child", "name", "dosage", "dosage_unit", "time", "next_dose_interval", "notes", "tags"),
+}
+
+
+def _clean_restore_payload(entry_type: str, snapshot: dict) -> dict:
+    fields = RESTORE_FIELDS.get(entry_type, ())
+    payload = {}
+    for field in fields:
+        if field not in snapshot:
+            continue
+        value = snapshot.get(field)
+        if field == "child" and isinstance(value, dict):
+            value = value.get("id")
+        payload[field] = value
+    return payload
+
+
+async def _restore_one_diaper_to_grocy(size: str) -> tuple[bool, str | None]:
+    size = str(size or "").strip()
+    product_id = DIAPER_PRODUCT_IDS.get(size)
+    if not GROCY_RESTORE_SERVICE:
+        return False, "No hay un servicio configurado para devolver el pañal a Grocy."
+    if not product_id:
+        return False, f"La talla '{size or 'sin definir'}' no tiene producto de Grocy asociado."
+    try:
+        await _call_ha_service(
+            GROCY_RESTORE_SERVICE,
+            {"product_id": product_id, "amount": 1},
+        )
+        if GROCY_STOCK_ENTITY:
+            try:
+                await _call_ha_service("homeassistant.update_entity", {"entity_id": GROCY_STOCK_ENTITY})
+            except HTTPException:
+                pass
+        return True, None
+    except HTTPException as exc:
+        return False, f"Grocy no pudo recuperar el pañal: {exc.detail}"
+
+
+@app.post("/api/delete-entry")
+async def delete_existing_entry(request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+
+    entry_type = str(payload.get("type", "")).strip()
+    resource = UNDO_ENDPOINTS.get(entry_type)
+    if not resource:
+        raise HTTPException(400, "Unsupported entry type")
+    try:
+        entry_id = int(payload.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid entry id")
+
+    try:
+        before_response = await http_client.get(f"/api/{resource}/{entry_id}/")
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Baby Buddy")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Baby Buddy request timed out")
+    if before_response.status_code >= 400:
+        raise HTTPException(before_response.status_code, before_response.text)
+    try:
+        snapshot = before_response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Baby Buddy returned invalid JSON")
+
+    session = None
+    if entry_type == "feeding":
+        session = _feeding_session_meta([str(entry_id)]).get(str(entry_id))
+
+    try:
+        delete_response = await http_client.delete(f"/api/{resource}/{entry_id}/")
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Baby Buddy")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Baby Buddy request timed out")
+    if delete_response.status_code >= 400:
+        raise HTTPException(delete_response.status_code, delete_response.text)
+
+    _record_audit(request, "delete", resource, entry_id, before=snapshot, after=None)
+    if entry_type == "feeding":
+        _delete_feeding_session_meta(entry_id)
+
+    warning = None
+    diaper_stock_restored = False
+    diaper_size = str(payload.get("diaper_size", "") or "").strip()
+    if entry_type == "diaper" and bool(payload.get("restore_diaper_stock", False)):
+        diaper_stock_restored, warning = await _restore_one_diaper_to_grocy(diaper_size)
+
+    return {
+        "type": entry_type,
+        "resource": resource,
+        "old_id": entry_id,
+        "snapshot": snapshot,
+        "session": session,
+        "diaper_size": diaper_size,
+        "diaper_stock_restored": diaper_stock_restored,
+        "warning": warning,
+    }
+
+
+@app.post("/api/restore-entry")
+async def restore_deleted_entry(request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+
+    entry_type = str(payload.get("type", "")).strip()
+    resource = UNDO_ENDPOINTS.get(entry_type)
+    snapshot = payload.get("snapshot")
+    if not resource or not isinstance(snapshot, dict):
+        raise HTTPException(400, "Invalid deleted-entry snapshot")
+
+    restore_payload = _clean_restore_payload(entry_type, snapshot)
+    if not restore_payload:
+        raise HTTPException(400, "Nothing to restore")
+
+    try:
+        response = await http_client.post(f"/api/{resource}/", json=restore_payload)
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to Baby Buddy")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Baby Buddy request timed out")
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text)
+    try:
+        restored = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Baby Buddy returned invalid JSON")
+
+    new_id = restored.get("id")
+    if entry_type == "feeding" and new_id not in (None, "") and isinstance(payload.get("session"), dict):
+        session = payload["session"]
+        _set_feeding_session_meta(
+            new_id,
+            max(0, int(session.get("active_seconds", 0) or 0)),
+            max(1, int(session.get("segments", 1) or 1)),
+            bool(session.get("paused", False)),
+        )
+
+    warning = None
+    if entry_type == "diaper" and bool(payload.get("diaper_stock_restored", False)):
+        consume_payload = dict(restore_payload)
+        consume_payload["_dashboard_diaper_size"] = str(payload.get("diaper_size", "") or "")
+        grocy_result = await _consume_diaper_for_entry(consume_payload, restored)
+        if not grocy_result.get("consumed"):
+            warning = f"El pañal se recuperó en Baby Buddy, pero no se pudo volver a descontar en Grocy: {grocy_result.get('reason', 'error desconocido')}."
+
+    _record_audit(
+        request,
+        "create",
+        resource,
+        new_id,
+        before=None,
+        after=restored,
+        child_id=_child_id_from_entry(restored),
+    )
+    return {"restored": True, "id": new_id, "warning": warning}
+
 
 @app.post("/api/undo-entry")
 async def undo_entry(request: Request):

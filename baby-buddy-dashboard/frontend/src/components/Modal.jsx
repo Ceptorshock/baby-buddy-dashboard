@@ -1,6 +1,10 @@
 import { Icons } from "./Icons";
+import { useEntryModalActions } from "./EntryModalActionsContext";
 
 export default function Modal({ title, children, onClose, maxWidth = 400 }) {
+  const entryActions = useEntryModalActions();
+  const canDelete = Boolean(entryActions?.entry?.id && entryActions?.canDelete);
+
   return (
     <div
       style={{
@@ -40,18 +44,42 @@ export default function Modal({ title, children, onClose, maxWidth = 400 }) {
           <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
             {title}
           </span>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: 4,
-            }}
-          >
-            <Icons.X />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={entryActions.onDelete}
+                disabled={entryActions.deleting}
+                title="Eliminar este registro"
+                aria-label="Eliminar este registro"
+                style={{
+                  background: "rgba(239,68,68,0.10)",
+                  border: "1px solid rgba(239,68,68,0.28)",
+                  borderRadius: 9,
+                  color: "#EF4444",
+                  cursor: entryActions.deleting ? "wait" : "pointer",
+                  padding: "6px 9px",
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {entryActions.deleting ? "Eliminando…" : "🗑 Eliminar"}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: 4,
+              }}
+            >
+              <Icons.X />
+            </button>
+          </div>
         </div>
         <div style={{ padding: "20px", overflowY: "auto", maxHeight: "calc(92vh - 62px)" }}>{children}</div>
       </div>

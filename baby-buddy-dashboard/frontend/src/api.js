@@ -6,6 +6,8 @@ const DIAPER_PURCHASES_PATH = "./api/diaper-purchases";
 const ROOM_STATUS_PATH = "./api/room-status";
 const CALENDAR_EVENTS_PATH = "./api/calendar-events";
 const UNDO_PATH = "./api/undo-entry";
+const DELETE_ENTRY_PATH = "./api/delete-entry";
+const RESTORE_ENTRY_PATH = "./api/restore-entry";
 const CURRENT_USER_PATH = "./api/current-user";
 const AUDIT_PATH = "./api/audit";
 const DASHBOARD_SETTINGS_PATH = "./api/dashboard-settings";
@@ -301,6 +303,32 @@ export const api = {
       let detail = text;
       try { const parsed = JSON.parse(text); detail = parsed.detail || parsed.message || text; } catch {}
       throw new Error(`Calendar API error ${response.status}: ${detail}`);
+    }
+    return response.json();
+  },
+
+  // Delete an existing Baby Buddy entry and keep a short-lived client snapshot so it can be restored.
+  deleteEntry: async (entry) => {
+    const response = await fetch(DELETE_ENTRY_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Delete entry API error ${response.status}`);
+    }
+    return response.json();
+  },
+  restoreDeletedEntry: async (snapshot) => {
+    const response = await fetch(RESTORE_ENTRY_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Restore entry API error ${response.status}`);
     }
     return response.json();
   },
