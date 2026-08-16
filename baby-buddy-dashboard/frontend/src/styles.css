@@ -655,6 +655,17 @@ body {
 .audit-time { margin-top: 3px; color: var(--text-dim); font-size: 10px; }
 .audit-diffs { margin-top: 7px; padding: 7px 9px; border-radius: 8px; background: var(--bg); color: var(--text-muted); font-family: var(--mono); font-size: 10px; overflow-wrap: anywhere; }
 
+.app.night-mode-active,
+.night-mode-screen {
+  --bg: #090605;
+  --card-bg: #0c0705;
+  --border: #3c2118;
+  --text: #d6a18b;
+  --text-muted: #9f6b57;
+  --text-dim: #7e5546;
+  --tooltip-bg: #0c0705ee;
+}
+
 .night-mode-screen { position: fixed; inset: 0; z-index: 950; overflow-y: auto; background: #020202; color: #f4d6c8; padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
 .night-header { max-width: 760px; margin: 0 auto 26px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .night-kicker { color: #8a3f2b; font-size: 10px; font-weight: 800; letter-spacing: .18em; }

@@ -1,5 +1,5 @@
 name: "Baby Buddy Dashboard ES"
-version: "2.0.26-es18.26"
+version: "2.0.27-es18.27"
 slug: "baby-buddy-dashboard-es"
 description: "Panel en castellano para Baby Buddy con Actividad reorganizada, historial por fechas, noche y resúmenes, tomas pausables con tiempo efectivo, borrado recuperable de registros, relevo, medicación, pañales/Grocy, temperatura y calendario."
 url: "https://github.com/Ceptorshock/baby-buddy-dashboard"
