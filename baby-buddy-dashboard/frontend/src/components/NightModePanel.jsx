@@ -389,7 +389,7 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onC
             <button
               type="button"
               onClick={continueLatest}
-              style={{ flex: "1 1 150px", border: 0, borderRadius: 11, padding: "10px 12px", background: "#F59E0B", color: "#000", fontFamily: "inherit", fontWeight: 900 }}
+              style={{ flex: "1 1 150px", border: "1px solid #8b3f27", borderRadius: 11, padding: "10px 12px", background: "#170b07", color: "#dd805d", fontFamily: "inherit", fontWeight: 900 }}
             >
               ▶️ Continuar última toma
             </button>
