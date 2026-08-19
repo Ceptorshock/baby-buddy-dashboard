@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -907,6 +908,70 @@ ha_client: httpx.AsyncClient | None = None
 active_alerts: dict[str, dict] = {}
 timer_reminder_snoozes: dict[str, datetime] = {}
 child_name_cache: dict[int, str] = {}
+_home_assistant_timezone_cache = None
+
+
+async def _home_assistant_timezone():
+    """Return the Home Assistant configured timezone for local wall-clock inputs."""
+    global _home_assistant_timezone_cache
+    if _home_assistant_timezone_cache is not None:
+        return _home_assistant_timezone_cache
+
+    timezone_name = str(os.environ.get("TZ") or "").strip()
+    if SUPERVISOR_TOKEN and ha_client is not None:
+        try:
+            response = await ha_client.get("config")
+            if response.status_code < 400:
+                payload = response.json()
+                configured = str(payload.get("time_zone") or "").strip()
+                if configured:
+                    timezone_name = configured
+        except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    if not timezone_name:
+        timezone_name = "UTC"
+    try:
+        _home_assistant_timezone_cache = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("Unknown Home Assistant timezone %s; falling back to UTC", timezone_name)
+        _home_assistant_timezone_cache = timezone.utc
+    return _home_assistant_timezone_cache
+
+
+def _normalize_naive_local_datetime(value, local_timezone):
+    """Convert a timezone-less ISO datetime from the UI to an aware UTC ISO string."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or ("T" not in text and " " not in text):
+        return value
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        return value
+    aware = parsed.replace(tzinfo=local_timezone)
+    return aware.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_baby_buddy_datetimes(payload, local_timezone):
+    """Normalize known Baby Buddy datetime fields while leaving dates and clock-only values alone."""
+    if isinstance(payload, list):
+        return [_normalize_baby_buddy_datetimes(item, local_timezone) for item in payload]
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = {}
+    for key, value in payload.items():
+        if key in {"time", "start", "end"}:
+            normalized[key] = _normalize_naive_local_datetime(value, local_timezone)
+        elif isinstance(value, (dict, list)):
+            normalized[key] = _normalize_baby_buddy_datetimes(value, local_timezone)
+        else:
+            normalized[key] = value
+    return normalized
 
 
 @asynccontextmanager
@@ -3954,13 +4019,22 @@ async def proxy_baby_buddy(path: str, request: Request):
             except (json.JSONDecodeError, UnicodeDecodeError):
                 request_payload = {}
 
-    # Metadata local del dashboard: permite usar una talla distinta solo para
-    # un cambio de pañal sin modificar la talla habitual de Home Assistant.
-    # Baby Buddy no conoce este campo, así que se elimina únicamente del body
-    # que se reenvía, conservándolo en request_payload para el descuento Grocy.
-    if request.method == "POST" and resource == "changes" and request_payload.get("_dashboard_diaper_size"):
-        forwarded_payload = dict(request_payload)
-        forwarded_payload.pop("_dashboard_diaper_size", None)
+    # Los controles datetime-local del navegador entregan una hora de pared sin
+    # zona horaria (por ejemplo 2026-08-19T18:30). Baby Buddy trabaja en UTC y,
+    # si recibe ese valor sin offset, puede interpretarlo como UTC. Normalizamos
+    # aquí todos los campos temporales de Baby Buddy usando la zona configurada
+    # en Home Assistant. Los valores que ya traen Z/+offset se dejan intactos.
+    if request.method in ("POST", "PATCH", "PUT") and request_payload:
+        local_timezone = await _home_assistant_timezone()
+        forwarded_payload = _normalize_baby_buddy_datetimes(request_payload, local_timezone)
+
+        # Metadata local del dashboard: permite usar una talla distinta solo para
+        # un cambio de pañal sin modificar la talla habitual de Home Assistant.
+        # Baby Buddy no conoce este campo, así que se elimina únicamente del body
+        # que se reenvía, conservándolo en request_payload para el descuento Grocy.
+        if resource == "changes":
+            forwarded_payload.pop("_dashboard_diaper_size", None)
+
         body = json.dumps(forwarded_payload).encode("utf-8")
 
     if request.method in ("PATCH", "PUT", "DELETE") and entry_id:
