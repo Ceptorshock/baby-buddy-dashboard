@@ -3,6 +3,9 @@ import SectionCard from "./SectionCard";
 import { Icons } from "./Icons";
 import {
   feedingDurationSeconds,
+  feedingLastBreast,
+  feedingMethodLabel,
+  feedingSegmentDetails,
   feedingSegments,
   formatTime,
   isAlexaFeeding,
@@ -87,6 +90,11 @@ function buildItems({
     const minutes = Math.round(feedingDurationSeconds(entry) / 60);
     const segments = feedingSegments(entry);
     const paused = isPausedFeeding(entry);
+    const details = feedingSegmentDetails(entry);
+    const segmentText = details.length > 1
+      ? details.map((item, index) => `T${index + 1} ${feedingMethodLabel(item.method).replace("Pecho ", "")}`).join(" · ")
+      : "";
+    const lastBreast = feedingLastBreast(entry);
     items.push({
       id: `feeding-${entry.id || when}`,
       type: "feeding",
@@ -95,7 +103,7 @@ function buildItems({
       when,
       time: `${formatTime(when)} – ${entry.end ? formatTime(entry.end) : "en curso"}`,
       title: isAlexaFeeding(entry) ? "Toma · 🎙️ Alexa" : "Toma",
-      detail: `${minutes} min${entry?._session ? " efectivos" : ""}${segments > 1 ? ` · ${segments} tramos` : ""}${paused ? " · Pausada" : ""}${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}`,
+      detail: `${minutes} min${entry?._session ? " efectivos" : ""}${segments > 1 ? ` · ${segments} tramos` : ""}${paused ? " · Pausada" : ""}${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}${segmentText ? ` · ${segmentText}` : ""}${lastBreast && segments > 1 ? ` · último ${feedingMethodLabel(lastBreast).toLowerCase()}` : ""}`,
       entry,
     });
   }

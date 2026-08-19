@@ -3,7 +3,9 @@ import { Icons } from "./Icons";
 import { api } from "../api";
 import {
   feedingDurationSeconds,
+  feedingLastBreast,
   feedingMethodLabel,
+  feedingSegmentDetails,
   feedingSegments,
   formatElapsed,
   formatTime,
@@ -276,6 +278,9 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onC
     ? Math.max(0, Math.round(feedingDurationSeconds(latestFeeding) / 60))
     : 0;
   const latestSegments = latestFeeding ? feedingSegments(latestFeeding) : 0;
+  const latestDetails = latestFeeding ? feedingSegmentDetails(latestFeeding) : [];
+  const latestBreast = latestFeeding ? feedingLastBreast(latestFeeding) : null;
+  const nextBreast = latestBreast === "left breast" ? "right breast" : latestBreast === "right breast" ? "left breast" : null;
   const latestPaused = latestFeeding ? isPausedFeeding(latestFeeding) : false;
   const sinceLatestEnd = latestFeeding?.end
     ? (now.getTime() - new Date(latestFeeding.end).getTime()) / 60000
@@ -346,6 +351,7 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onC
                   {latestFeedingMinutes} min{latestFeeding?._session ? " efectivos" : ""}
                   {latestSegments > 1 ? ` · ${latestSegments} tramos` : ""}
                   {latestFeeding.method ? ` · ${feedingMethodLabel(latestFeeding.method)}` : ""}
+                  {latestDetails.length > 1 ? ` · ${latestDetails.map((item, index) => `T${index + 1} ${feedingMethodLabel(item.method).replace("Pecho ", "")}`).join(" · ")}` : ""}
                   {isAlexaFeeding(latestFeeding) ? " · 🎙️ Alexa" : ""}
                 </small>
               </>
@@ -361,6 +367,16 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onC
             </strong>
             <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)", lineHeight: 1.35 }}>
               {nextFeedingAt ? `${feeding ? "Desde el inicio de la toma actual" : "Desde el inicio de la última toma"} · ${relativeTo(nextFeedingAt, now)}` : "Sin referencia todavía"}
+            </small>
+          </div>
+
+          <div style={{ padding: 11, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+            <span style={{ display: "block", fontSize: 10, color: "var(--text-dim)", fontWeight: 800 }}>PECHO</span>
+            <strong style={{ display: "block", marginTop: 4, color: "var(--text)", fontSize: 14 }}>
+              {latestBreast ? `Último: ${feedingMethodLabel(latestBreast).replace("Pecho ", "")}` : "—"}
+            </strong>
+            <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)" }}>
+              {nextBreast ? `Siguiente: ${feedingMethodLabel(nextBreast).replace("Pecho ", "")}` : "Sin referencia"}
             </small>
           </div>
 

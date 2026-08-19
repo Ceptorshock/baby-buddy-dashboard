@@ -10,6 +10,9 @@ import { colors } from "../../utils/colors";
 import { useUnits } from "../../utils/units";
 import {
   feedingDurationSeconds,
+  feedingLastBreast,
+  feedingMethodLabel,
+  feedingSegmentDetails,
   feedingSegments,
   feedingSession,
   isAlexaFeeding,
@@ -89,6 +92,35 @@ function breastMergeMethod(previousMethod, currentMethod) {
     return "both breasts";
   }
   return currentMethod || previousMethod || "bottle";
+}
+
+function directBreast(value) {
+  const method = String(value || "").toLowerCase();
+  return method === "left breast" || method === "right breast" ? method : null;
+}
+
+function segmentDetail(start, end, method, activeSeconds = null) {
+  return {
+    start: start || null,
+    end: end || null,
+    active_seconds: activeSeconds == null ? segmentSeconds(start, end) : Math.max(0, Math.round(Number(activeSeconds) || 0)),
+    method: String(method || "").toLowerCase(),
+  };
+}
+
+function detailsForFeeding(feeding) {
+  const existing = feedingSegmentDetails(feeding);
+  if (existing.length) return existing.map((item) => ({ ...item }));
+  if (!feeding?.start || feedingSegments(feeding) > 1) return [];
+  return [segmentDetail(feeding.start, feeding.end || feeding.start, feeding.method, feedingDurationSeconds(feeding))];
+}
+
+function lastDirectBreast(details, fallback = null) {
+  for (const item of [...(details || [])].reverse()) {
+    const method = directBreast(item?.method);
+    if (method) return method;
+  }
+  return directBreast(fallback);
 }
 
 function feedingTagName(tag) {
@@ -220,6 +252,8 @@ export default function FeedingForm({
       ? Math.max(0, Math.round(feedingDurationSeconds(entry) / 60))
       : 0,
   );
+  const [segmentDetails, setSegmentDetails] = useState(() => feedingSegmentDetails(entry));
+  const [lastBreast, setLastBreast] = useState(() => feedingLastBreast(entry) || "");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -260,7 +294,8 @@ export default function FeedingForm({
         if (cancelled || !base) return;
         setContinuationBase(base);
         setType(base.type || "breast milk");
-        setMethod(base.method || "both breasts");
+        const previousBreast = feedingLastBreast(base);
+        setMethod(previousBreast === "left breast" ? "right breast" : previousBreast === "right breast" ? "left breast" : (base.method || "both breasts"));
         setAmount("");
         setNotes(stripAlexaNoteMarker(base.notes || ""));
         setAlexaMarked(isAlexaFeeding(base));
@@ -348,10 +383,17 @@ export default function FeedingForm({
 
     const restore = apiPayloadFromEntry(continuationBase);
     await api.updateFeeding(continuationBase.id, data);
+    const existingDetails = detailsForFeeding(continuationBase);
+    const nextDetails = [
+      ...existingDetails,
+      segmentDetail(`${start}:00`, `${end}:00`, method, segmentSeconds(start, end)),
+    ];
     await api.setFeedingSession(continuationBase.id, {
       active_seconds: newSeconds,
       segments: newSegments,
       paused,
+      details: nextDetails,
+      last_breast: directBreast(method) || lastDirectBreast(nextDetails, continuationBase.method),
     });
     await api.deleteTimer(timerId).catch(() => null);
 
@@ -386,10 +428,13 @@ export default function FeedingForm({
     if (amount) data.amount = Number(amount);
     const created = await api.createFeeding(data);
     if (paused) {
+      const details = [segmentDetail(`${start}:00`, `${end}:00`, method, segmentSeconds(start, end))];
       await api.setFeedingSession(created.id, {
         active_seconds: segmentSeconds(start, end),
         segments: 1,
         paused: true,
+        details,
+        last_breast: directBreast(method),
       });
     }
     if (timerId) await api.deleteTimer(timerId).catch(() => null);
@@ -440,10 +485,17 @@ export default function FeedingForm({
 
         const restore = apiPayloadFromEntry(continuationBase);
         await api.updateFeeding(continuationBase.id, data);
+        const existingDetails = detailsForFeeding(continuationBase);
+        const nextDetails = [
+          ...existingDetails,
+          segmentDetail(`${start}:00`, `${pauseEnd}:00`, method, segmentSeconds(start, pauseEnd)),
+        ];
         await api.setFeedingSession(continuationBase.id, {
           active_seconds: activeSeconds,
           segments: feedingSegments(continuationBase) + 1,
           paused: true,
+          details: nextDetails,
+          last_breast: directBreast(method) || lastDirectBreast(nextDetails, continuationBase.method),
         });
         await api.deleteTimer(timerId).catch(() => null);
         onDone({
@@ -475,10 +527,13 @@ export default function FeedingForm({
       };
       if (amount) data.amount = Number(amount);
       const created = await api.createFeeding(data);
+      const details = [segmentDetail(`${start}:00`, `${pauseEnd}:00`, method, segmentSeconds(start, pauseEnd))];
       await api.setFeedingSession(created.id, {
         active_seconds: segmentSeconds(start, pauseEnd),
         segments: 1,
         paused: true,
+        details,
+        last_breast: directBreast(method),
       });
       await api.deleteTimer(timerId).catch(() => null);
       onDone({
@@ -516,9 +571,23 @@ export default function FeedingForm({
     const effectiveSeconds =
       feedingDurationSeconds(previousFeeding) +
       (entry?._session ? Math.round(effectiveMinutes * 60) : segmentSeconds(start, end));
+    const previousDetails = detailsForFeeding(previousFeeding);
+    const currentDetails = feedingSegmentDetails(entry).length
+      ? feedingSegmentDetails(entry).map((item) => ({ ...item }))
+      : feedingSegments(entry) > 1
+        ? []
+        : [segmentDetail(`${start}:00`, `${end}:00`, method, entry?._session ? Math.round(effectiveMinutes * 60) : segmentSeconds(start, end))];
+    const mergedDetails = [...previousDetails, ...currentDetails].sort((a, b) => {
+      const ta = new Date(a.start || 0).getTime();
+      const tb = new Date(b.start || 0).getTime();
+      return ta - tb;
+    });
     const mergedSegments = feedingSegments(previousFeeding) + feedingSegments(entry);
+    const sequenceText = mergedDetails
+      .map((item, index) => `Tramo ${index + 1}: ${feedingMethodLabel(item.method) || "método sin indicar"}`)
+      .join("\n");
     const confirmed = window.confirm(
-      `¿Fusionar estas dos tomas?\n\nAnterior: ${clock(previousStart)}–${clock(previousEnd)}\nActual: ${clock(currentStart)}–${clock(currentEnd)}\n\nQuedará ${clock(mergedStart)}–${clock(mergedEnd)}, con ${Math.round(effectiveSeconds / 60)} min efectivos.`,
+      `¿Fusionar estas dos tomas?\n\nAnterior: ${clock(previousStart)}–${clock(previousEnd)} · ${feedingMethodLabel(previousFeeding.method) || "—"}\nActual: ${clock(currentStart)}–${clock(currentEnd)} · ${feedingMethodLabel(method) || "—"}\n\n${sequenceText}\n\nQuedará ${clock(mergedStart)}–${clock(mergedEnd)}, con ${Math.round(effectiveSeconds / 60)} min efectivos.`,
     );
     if (!confirmed) return;
 
@@ -556,6 +625,8 @@ export default function FeedingForm({
           active_seconds: effectiveSeconds,
           segments: mergedSegments,
           paused: isPausedFeeding(entry),
+          details: mergedDetails,
+          last_breast: lastDirectBreast(mergedDetails, method) || feedingLastBreast(entry) || feedingLastBreast(previousFeeding),
         });
       } catch (mergeError) {
         await api.createFeeding(restoreCurrent).catch(() => null);
@@ -620,6 +691,8 @@ export default function FeedingForm({
             active_seconds: Math.max(0, Math.round(effectiveMinutes * 60)),
             segments: oldSession.segments,
             paused: oldSession.paused,
+            details: segmentDetails,
+            last_breast: lastBreast || lastDirectBreast(segmentDetails, method),
           });
         }
         onDone({
@@ -829,6 +902,73 @@ export default function FeedingForm({
           </div>
         )}
 
+        {isEdit && session && session.segments > 1 && (
+          <div style={{ marginBottom: 14, padding: 11, borderRadius: 11, border: "1px solid var(--border)", background: "var(--bg)" }}>
+            <strong style={{ color: "var(--text)", fontSize: 12 }}>Pechos por tramo</strong>
+            {segmentDetails.length ? (
+              <div style={{ display: "grid", gap: 8, marginTop: 9 }}>
+                {segmentDetails.length < session.segments && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                    Esta toma conserva el pecho de {segmentDetails.length} de {session.segments} tramos. Los tramos creados antes de ES18.28 no se pueden reconstruir automáticamente.
+                  </div>
+                )}
+                {segmentDetails.map((item, index) => (
+                  <div key={`${item.start || "segment"}-${index}`} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 9 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+                      <strong style={{ color: "var(--text)" }}>Tramo {index + 1}</strong> · {clock(item.start)}–{clock(item.end)} · {Math.round((Number(item.active_seconds) || 0) / 60)} min
+                    </div>
+                    <QuickRow>
+                      {BREAST_METHODS.map((choice) => (
+                        <button
+                          key={choice.value}
+                          type="button"
+                          onClick={() => {
+                            const next = segmentDetails.map((current, detailIndex) => detailIndex === index ? { ...current, method: choice.value } : current);
+                            setSegmentDetails(next);
+                            setLastBreast(lastDirectBreast(next, method) || "");
+                          }}
+                          style={{
+                            ...quickButtonStyle,
+                            padding: "6px 8px",
+                            border: String(item.method || "").toLowerCase() === choice.value ? `1px solid ${colors.feeding}` : "1px solid var(--border)",
+                            color: String(item.method || "").toLowerCase() === choice.value ? colors.feeding : "var(--text)",
+                          }}
+                        >
+                          {choice.label}
+                        </button>
+                      ))}
+                    </QuickRow>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ marginTop: 7, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                Esta toma fue fusionada con una versión anterior del panel y no conserva el pecho de cada tramo. Puedes indicar al menos cuál fue el último pecho usado.
+              </div>
+            )}
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>Último pecho usado</div>
+            <QuickRow>
+              {[
+                { value: "left breast", label: "Izquierdo" },
+                { value: "right breast", label: "Derecho" },
+              ].map((choice) => (
+                <button
+                  key={choice.value}
+                  type="button"
+                  onClick={() => setLastBreast(choice.value)}
+                  style={{
+                    ...quickButtonStyle,
+                    border: lastBreast === choice.value ? `1px solid ${colors.feeding}` : "1px solid var(--border)",
+                    color: lastBreast === choice.value ? colors.feeding : "var(--text)",
+                  }}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </QuickRow>
+          </div>
+        )}
+
         <FormField label="Notas">
           <FormInput type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
         </FormField>
@@ -849,7 +989,7 @@ export default function FeedingForm({
           <div style={{ marginBottom: 14, padding: 11, borderRadius: 11, border: `1px solid ${colors.feeding}45`, background: `${colors.feeding}08` }}>
             <strong style={{ fontSize: 12, color: "var(--text)" }}>¿Era continuación de la toma anterior?</strong>
             <div style={{ marginTop: 4, marginBottom: 8, color: "var(--text-muted)", fontSize: 11 }}>
-              Anterior: {clock(previousFeeding.start)}–{clock(previousFeeding.end)}. Al fusionar se conserva el intervalo completo, pero el tiempo de toma será la suma de los minutos efectivos de ambas.
+              Anterior: {clock(previousFeeding.start)}–{clock(previousFeeding.end)} · {feedingMethodLabel(previousFeeding.method) || "—"}. Actual: {feedingMethodLabel(method) || "—"}. Al fusionar se conservará también el pecho de cada tramo y cuál fue el último usado.
             </div>
             <button type="button" disabled={mergeBusy} onClick={handleMerge} style={{ width: "100%", border: `1px solid ${colors.feeding}`, borderRadius: 9, background: "transparent", color: colors.feeding, padding: "9px 10px", fontFamily: "inherit", fontSize: 12, fontWeight: 800, cursor: mergeBusy ? "default" : "pointer" }}>
               {mergeBusy ? "Fusionando…" : "Fusionar con la toma anterior"}

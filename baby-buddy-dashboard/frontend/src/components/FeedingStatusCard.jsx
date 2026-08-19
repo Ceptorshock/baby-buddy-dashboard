@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import { colors } from "../utils/colors";
 import {
   feedingDurationSeconds,
+  feedingLastBreast,
   feedingMethodLabel,
+  feedingNextBreast,
+  feedingSegmentDetails,
   feedingSegments,
   formatTime,
   isPausedFeeding,
@@ -52,14 +55,10 @@ export default function FeedingStatusCard({
   onEdit,
 }) {
   const latest = useMemo(() => latestByStart(feedings), [feedings]);
-  const lastBreast = useMemo(
+  const lastBreastFeeding = useMemo(
     () =>
       [...feedings]
-        .filter((item) =>
-          ["left breast", "right breast", "both breasts"].includes(
-            String(item?.method || "").toLowerCase(),
-          ),
-        )
+        .filter((item) => feedingLastBreast(item))
         .sort(
           (a, b) =>
             new Date(b.start || b.end).getTime() -
@@ -76,6 +75,9 @@ export default function FeedingStatusCard({
   const paused = isPausedFeeding(latest);
   const segments = feedingSegments(latest);
   const duration = Math.max(0, Math.round(feedingDurationSeconds(latest) / 60));
+  const latestDetails = feedingSegmentDetails(latest);
+  const lastBreastMethod = feedingLastBreast(lastBreastFeeding);
+  const nextBreastMethod = feedingNextBreast(lastBreastFeeding);
   const sinceEndMinutes = latest.end
     ? (Date.now() - new Date(latest.end).getTime()) / 60000
     : Infinity;
@@ -131,13 +133,23 @@ export default function FeedingStatusCard({
         <div style={tileStyle}>
           <span style={{ display: "block", color: "var(--text-dim)", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Último pecho</span>
           <strong style={{ display: "block", marginTop: 4, color: "var(--text)", fontSize: 14 }}>
-            {breastLabel(lastBreast?.method)}
+            {breastLabel(lastBreastMethod)}
           </strong>
           <small style={{ display: "block", marginTop: 3, color: "var(--text-muted)" }}>
-            {lastBreast ? `${formatTime(lastBreast.start)} · ${feedingMethodLabel(lastBreast.method)}` : "Sin registro"}
+            {lastBreastFeeding ? `${formatTime(lastBreastFeeding.start)} · siguiente: ${breastLabel(nextBreastMethod)}` : "Sin registro"}
           </small>
         </div>
       </div>
+
+      {latestDetails.length > 1 && (
+        <div style={{ marginTop: 9, padding: "9px 10px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg)", fontSize: 11, color: "var(--text-muted)" }}>
+          {latestDetails.map((item, index) => (
+            <span key={`${item.start || index}-${index}`} style={{ display: "inline-block", marginRight: 12 }}>
+              <strong style={{ color: "var(--text)" }}>T{index + 1}</strong> {feedingMethodLabel(item.method) || "—"}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
         {canContinue && (
