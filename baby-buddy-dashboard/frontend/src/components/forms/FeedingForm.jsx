@@ -51,6 +51,12 @@ function toLocalDatetime(date) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function toApiDatetime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString();
+}
+
 function shiftMinutes(value, minutes) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -373,7 +379,7 @@ export default function FeedingForm({
     const currentAmount = Number(amount || 0);
     const baseAmount = Number(continuationBase.amount || 0);
     const data = {
-      end: `${end}:00`,
+      end: toApiDatetime(end),
       type: type || continuationBase.type,
       method: breastMergeMethod(continuationBase.method, method),
       notes: meta.notes,
@@ -386,7 +392,7 @@ export default function FeedingForm({
     const existingDetails = detailsForFeeding(continuationBase);
     const nextDetails = [
       ...existingDetails,
-      segmentDetail(`${start}:00`, `${end}:00`, method, segmentSeconds(start, end)),
+      segmentDetail(toApiDatetime(start), toApiDatetime(end), method, segmentSeconds(start, end)),
     ];
     await api.setFeedingSession(continuationBase.id, {
       active_seconds: newSeconds,
@@ -408,7 +414,7 @@ export default function FeedingForm({
       recreateTimer: {
         child: childId,
         name: timerInfo?.name || `Toma continuación #${continuationBase.id}`,
-        start: `${start}:00`,
+        start: toApiDatetime(start),
       },
     });
     return true;
@@ -418,8 +424,8 @@ export default function FeedingForm({
     const meta = metadataFor(notes, [], alexaMarked);
     const data = {
       child: childId,
-      start: `${start}:00`,
-      end: `${end}:00`,
+      start: toApiDatetime(start),
+      end: toApiDatetime(end),
       type,
       method,
       notes: meta.notes,
@@ -428,7 +434,7 @@ export default function FeedingForm({
     if (amount) data.amount = Number(amount);
     const created = await api.createFeeding(data);
     if (paused) {
-      const details = [segmentDetail(`${start}:00`, `${end}:00`, method, segmentSeconds(start, end))];
+      const details = [segmentDetail(toApiDatetime(start), toApiDatetime(end), method, segmentSeconds(start, end))];
       await api.setFeedingSession(created.id, {
         active_seconds: segmentSeconds(start, end),
         segments: 1,
@@ -448,7 +454,7 @@ export default function FeedingForm({
         ? {
             child: childId,
             name: timerInfo?.name || "feeding",
-            start: `${start}:00`,
+            start: toApiDatetime(start),
           }
         : null,
     });
@@ -473,7 +479,7 @@ export default function FeedingForm({
           feedingDurationSeconds(continuationBase) +
           segmentSeconds(start, pauseEnd);
         const data = {
-          end: `${pauseEnd}:00`,
+          end: toApiDatetime(pauseEnd),
           type: type || continuationBase.type,
           method: breastMergeMethod(continuationBase.method, method),
           notes: meta.notes,
@@ -488,7 +494,7 @@ export default function FeedingForm({
         const existingDetails = detailsForFeeding(continuationBase);
         const nextDetails = [
           ...existingDetails,
-          segmentDetail(`${start}:00`, `${pauseEnd}:00`, method, segmentSeconds(start, pauseEnd)),
+          segmentDetail(toApiDatetime(start), toApiDatetime(pauseEnd), method, segmentSeconds(start, pauseEnd)),
         ];
         await api.setFeedingSession(continuationBase.id, {
           active_seconds: activeSeconds,
@@ -509,7 +515,7 @@ export default function FeedingForm({
           recreateTimer: {
             child: childId,
             name: timerInfo?.name || `Toma continuación #${continuationBase.id}`,
-            start: `${start}:00`,
+            start: toApiDatetime(start),
           },
         });
         return;
@@ -518,8 +524,8 @@ export default function FeedingForm({
       const meta = metadataFor(notes, [], alexaMarked);
       const data = {
         child: childId,
-        start: `${start}:00`,
-        end: `${pauseEnd}:00`,
+        start: toApiDatetime(start),
+        end: toApiDatetime(pauseEnd),
         type,
         method,
         notes: meta.notes,
@@ -527,7 +533,7 @@ export default function FeedingForm({
       };
       if (amount) data.amount = Number(amount);
       const created = await api.createFeeding(data);
-      const details = [segmentDetail(`${start}:00`, `${pauseEnd}:00`, method, segmentSeconds(start, pauseEnd))];
+      const details = [segmentDetail(toApiDatetime(start), toApiDatetime(pauseEnd), method, segmentSeconds(start, pauseEnd))];
       await api.setFeedingSession(created.id, {
         active_seconds: segmentSeconds(start, pauseEnd),
         segments: 1,
@@ -545,7 +551,7 @@ export default function FeedingForm({
         recreateTimer: {
           child: childId,
           name: timerInfo?.name || "feeding",
-          start: `${start}:00`,
+          start: toApiDatetime(start),
         },
       });
     } catch (err) {
@@ -576,7 +582,7 @@ export default function FeedingForm({
       ? feedingSegmentDetails(entry).map((item) => ({ ...item }))
       : feedingSegments(entry) > 1
         ? []
-        : [segmentDetail(`${start}:00`, `${end}:00`, method, entry?._session ? Math.round(effectiveMinutes * 60) : segmentSeconds(start, end))];
+        : [segmentDetail(toApiDatetime(start), toApiDatetime(end), method, entry?._session ? Math.round(effectiveMinutes * 60) : segmentSeconds(start, end))];
     const mergedDetails = [...previousDetails, ...currentDetails].sort((a, b) => {
       const ta = new Date(a.start || 0).getTime();
       const tb = new Date(b.start || 0).getTime();
@@ -603,8 +609,8 @@ export default function FeedingForm({
         mergedAlexa,
       );
       const payload = {
-        start: `${toLocalDatetime(mergedStart)}:00`,
-        end: `${toLocalDatetime(mergedEnd)}:00`,
+        start: toApiDatetime(mergedStart),
+        end: toApiDatetime(mergedEnd),
         type: type || previousFeeding.type,
         method: breastMergeMethod(previousFeeding.method, method),
         notes: mergedMeta.notes,
@@ -663,6 +669,11 @@ export default function FeedingForm({
       setError("La hora de fin debe ser igual o posterior a la hora de inicio.");
       return;
     }
+    const currentTime = Date.now();
+    if (startDate.getTime() > currentTime || endDate.getTime() > currentTime) {
+      setError("La hora de inicio y fin no pueden estar en el futuro.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -674,8 +685,8 @@ export default function FeedingForm({
       if (isEdit) {
         const meta = metadataFor(notes, entry.tags, alexaMarked);
         const data = {
-          start: `${start}:00`,
-          end: `${end}:00`,
+          start: toApiDatetime(start),
+          end: toApiDatetime(end),
           type,
           method,
           notes: meta.notes,
@@ -715,8 +726,8 @@ export default function FeedingForm({
       const meta = metadataFor(notes, [], alexaMarked);
       const data = {
         child: childId,
-        start: `${start}:00`,
-        end: `${end}:00`,
+        start: toApiDatetime(start),
+        end: toApiDatetime(end),
         type,
         method,
         notes: meta.notes,
