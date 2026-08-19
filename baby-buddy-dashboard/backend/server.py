@@ -105,10 +105,20 @@ def _init_audit_db():
                 active_seconds INTEGER NOT NULL DEFAULT 0,
                 segments INTEGER NOT NULL DEFAULT 1,
                 paused INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                details_json TEXT,
+                last_breast TEXT
             )
             """
         )
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(feeding_session_meta)").fetchall()
+        }
+        if "details_json" not in columns:
+            connection.execute("ALTER TABLE feeding_session_meta ADD COLUMN details_json TEXT")
+        if "last_breast" not in columns:
+            connection.execute("ALTER TABLE feeding_session_meta ADD COLUMN last_breast TEXT")
         connection.commit()
 
 
@@ -269,6 +279,34 @@ def _attach_audit(resource: str, payload):
     return payload
 
 
+def _normalize_feeding_segment_details(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        method = str(item.get("method", "") or "").strip().lower()
+        try:
+            active_seconds = max(0, int(item.get("active_seconds", 0) or 0))
+        except (TypeError, ValueError):
+            active_seconds = 0
+        result.append(
+            {
+                "start": item.get("start") or None,
+                "end": item.get("end") or None,
+                "active_seconds": active_seconds,
+                "method": method,
+            }
+        )
+    return result
+
+
+def _normalize_last_breast(value) -> str | None:
+    method = str(value or "").strip().lower()
+    return method if method in ("left breast", "right breast") else None
+
+
 def _feeding_session_meta(entry_ids: list[str]) -> dict[str, dict]:
     clean_ids = [str(value) for value in entry_ids if value not in (None, "")]
     if not clean_ids:
@@ -276,19 +314,27 @@ def _feeding_session_meta(entry_ids: list[str]) -> dict[str, dict]:
     placeholders = ",".join("?" for _ in clean_ids)
     with sqlite3.connect(AUDIT_DB_PATH) as connection:
         rows = connection.execute(
-            f"SELECT entry_id, active_seconds, segments, paused, updated_at "
+            f"SELECT entry_id, active_seconds, segments, paused, updated_at, details_json, last_breast "
             f"FROM feeding_session_meta WHERE entry_id IN ({placeholders})",
             clean_ids,
         ).fetchall()
-    return {
-        str(row[0]): {
+    result = {}
+    for row in rows:
+        details = []
+        if row[5]:
+            try:
+                details = _normalize_feeding_segment_details(json.loads(row[5]))
+            except (json.JSONDecodeError, TypeError):
+                details = []
+        result[str(row[0])] = {
             "active_seconds": max(0, int(row[1] or 0)),
             "segments": max(1, int(row[2] or 1)),
             "paused": bool(row[3]),
             "updated_at": row[4],
+            "details": details,
+            "last_breast": _normalize_last_breast(row[6]),
         }
-        for row in rows
-    }
+    return result
 
 
 def _attach_feeding_session_meta(payload):
@@ -306,17 +352,35 @@ def _attach_feeding_session_meta(payload):
     return payload
 
 
-def _set_feeding_session_meta(entry_id, active_seconds: int, segments: int, paused: bool):
+def _set_feeding_session_meta(
+    entry_id,
+    active_seconds: int,
+    segments: int,
+    paused: bool,
+    details=None,
+    last_breast=None,
+):
+    normalized_details = _normalize_feeding_segment_details(details)
+    normalized_last_breast = _normalize_last_breast(last_breast)
+    if not normalized_last_breast:
+        for item in reversed(normalized_details):
+            candidate = _normalize_last_breast(item.get("method"))
+            if candidate:
+                normalized_last_breast = candidate
+                break
     with sqlite3.connect(AUDIT_DB_PATH) as connection:
         connection.execute(
             """
-            INSERT INTO feeding_session_meta (entry_id, active_seconds, segments, paused, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO feeding_session_meta (
+                entry_id, active_seconds, segments, paused, updated_at, details_json, last_breast
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(entry_id) DO UPDATE SET
                 active_seconds=excluded.active_seconds,
                 segments=excluded.segments,
                 paused=excluded.paused,
-                updated_at=excluded.updated_at
+                updated_at=excluded.updated_at,
+                details_json=excluded.details_json,
+                last_breast=excluded.last_breast
             """,
             (
                 str(entry_id),
@@ -324,6 +388,8 @@ def _set_feeding_session_meta(entry_id, active_seconds: int, segments: int, paus
                 max(1, int(segments or 1)),
                 1 if paused else 0,
                 datetime.now(timezone.utc).isoformat(),
+                _json_text(normalized_details) if normalized_details else None,
+                normalized_last_breast,
             ),
         )
         connection.commit()
@@ -3567,12 +3633,23 @@ async def set_feeding_session(entry_id: int, request: Request):
     except (TypeError, ValueError):
         raise HTTPException(400, "Invalid feeding session values")
     paused = bool(payload.get("paused", False))
-    _set_feeding_session_meta(entry_id, active_seconds, segments, paused)
+    details = _normalize_feeding_segment_details(payload.get("details"))
+    last_breast = _normalize_last_breast(payload.get("last_breast"))
+    _set_feeding_session_meta(
+        entry_id,
+        active_seconds,
+        segments,
+        paused,
+        details=details,
+        last_breast=last_breast,
+    )
     return {
         "entry_id": entry_id,
         "active_seconds": active_seconds,
         "segments": segments,
         "paused": paused,
+        "details": details,
+        "last_breast": last_breast,
     }
 
 
@@ -3744,6 +3821,8 @@ async def restore_deleted_entry(request: Request):
             max(0, int(session.get("active_seconds", 0) or 0)),
             max(1, int(session.get("segments", 1) or 1)),
             bool(session.get("paused", False)),
+            details=session.get("details"),
+            last_breast=session.get("last_breast"),
         )
 
     warning = None

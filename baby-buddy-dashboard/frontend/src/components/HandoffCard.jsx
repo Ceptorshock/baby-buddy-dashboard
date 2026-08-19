@@ -4,6 +4,7 @@ import { Icons } from "./Icons";
 import { useUnits } from "../utils/units";
 import {
   feedingDurationSeconds,
+  feedingLastBreast,
   feedingMethodLabel,
   formatTime,
   parseDuration,
@@ -231,9 +232,9 @@ export default function HandoffCard({
     .filter((entry) => entry?.start || entry?.end)
     .sort((a, b) => new Date(b.start || b.end).getTime() - new Date(a.start || a.end).getTime());
   const latestOverallFeeding = sortedFeedings[0] || null;
-  const latestBreast = sortedFeedings.find((entry) =>
-    ["left breast", "right breast", "both breasts"].includes(String(entry?.method || "").toLowerCase()),
-  ) || null;
+  const latestBreast = sortedFeedings.find((entry) => feedingLastBreast(entry)) || null;
+  const latestBreastMethod = feedingLastBreast(latestBreast);
+  const nextBreastMethod = latestBreastMethod === "left breast" ? "right breast" : latestBreastMethod === "right breast" ? "left breast" : null;
   const nextFeedingReference = latestOverallFeeding?.start
     ? new Date(new Date(latestOverallFeeding.start).getTime() + Number(feedingAlertMinutes || 180) * 60000)
     : null;
@@ -462,7 +463,7 @@ export default function HandoffCard({
               <span>Último pecho usado</span>
               <strong>
                 {latestBreast
-                  ? `${feedingMethodLabel(latestBreast.method)} · ${formatTime(latestBreast.start || latestBreast.end)}`
+                  ? `${feedingMethodLabel(latestBreastMethod)} · siguiente ${feedingMethodLabel(nextBreastMethod)}`
                   : "Sin registro"}
               </strong>
             </div>

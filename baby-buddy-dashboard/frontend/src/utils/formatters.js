@@ -45,16 +45,56 @@ export function isAlexaFeeding(feeding) {
   return ALEXA_NOTE_MARKERS.some((marker) => notes.includes(marker));
 }
 
+function normalizeBreastMethod(value) {
+  const method = String(value || "").trim().toLowerCase();
+  if (["left breast", "right breast", "both breasts"].includes(method)) return method;
+  return "";
+}
+
 export function feedingSession(feeding) {
   const raw = feeding?._session;
   if (!raw || typeof raw !== "object") return null;
   const activeSeconds = Number(raw.active_seconds);
   const segments = Number(raw.segments);
+  const details = (Array.isArray(raw.details) ? raw.details : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      start: item.start || null,
+      end: item.end || null,
+      active_seconds: Math.max(0, Math.round(Number(item.active_seconds) || 0)),
+      method: normalizeBreastMethod(item.method) || String(item.method || "").toLowerCase(),
+    }));
+  const lastBreast = normalizeBreastMethod(raw.last_breast);
   return {
     active_seconds: Number.isFinite(activeSeconds) ? Math.max(0, Math.round(activeSeconds)) : null,
     segments: Number.isFinite(segments) ? Math.max(1, Math.round(segments)) : 1,
     paused: Boolean(raw.paused),
+    details,
+    last_breast: ["left breast", "right breast"].includes(lastBreast) ? lastBreast : null,
   };
+}
+
+export function feedingSegmentDetails(feeding) {
+  return feedingSession(feeding)?.details || [];
+}
+
+export function feedingLastBreast(feeding) {
+  if (!feeding) return null;
+  const session = feedingSession(feeding);
+  if (session?.last_breast) return session.last_breast;
+  for (const item of [...(session?.details || [])].reverse()) {
+    const method = normalizeBreastMethod(item?.method);
+    if (method === "left breast" || method === "right breast") return method;
+  }
+  const method = normalizeBreastMethod(feeding.method);
+  return method === "left breast" || method === "right breast" ? method : null;
+}
+
+export function feedingNextBreast(feeding) {
+  const last = feedingLastBreast(feeding);
+  if (last === "left breast") return "right breast";
+  if (last === "right breast") return "left breast";
+  return null;
 }
 
 export function isPausedFeeding(feeding) {
@@ -209,6 +249,15 @@ export function toFeedingTimeline(feedings, volumeUnit = "mL") {
     const sessionParts = [];
     if (session?.segments > 1) sessionParts.push(`${session.segments} tramos`);
     if (session?.paused) sessionParts.push("pausada");
+    const segmentBreasts = (session?.details || [])
+      .map((item, index) => {
+        const segmentMethod = feedingMethodLabel(item.method);
+        return segmentMethod ? `T${index + 1}: ${segmentMethod.replace("Pecho ", "")}` : "";
+      })
+      .filter(Boolean);
+    if (segmentBreasts.length > 1) sessionParts.push(segmentBreasts.join(" · "));
+    const lastBreast = feedingLastBreast(f);
+    if (lastBreast && session?.segments > 1) sessionParts.push(`último ${feedingMethodLabel(lastBreast).toLowerCase()}`);
     const effective = session ? " efectivos" : "";
 
     return {
