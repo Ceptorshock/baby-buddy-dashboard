@@ -996,6 +996,11 @@ async def lifespan(app: FastAPI):
         timeout=10.0,
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
     )
+
+    # Cargar la zona horaria al arrancar. Así Telegram, avisos y cualquier texto
+    # generado antes de la primera escritura ya usan la misma zona que Home Assistant.
+    await _home_assistant_timezone()
+
     alert_task = None
     if (
         ALERTS_CONFIG.get("enabled")
@@ -1845,11 +1850,15 @@ async def _child_name(child_id: int) -> str:
 
 
 def _clock_text(*values) -> str:
+    # Baby Buddy devuelve timestamps con zona horaria (normalmente UTC).
+    # Para textos dirigidos a personas (Telegram/avisos), volver siempre a
+    # la zona horaria local de Home Assistant antes de mostrar HH:MM.
+    local_timezone = _home_assistant_timezone_cache or datetime.now().astimezone().tzinfo or timezone.utc
     for value in values:
         parsed = _parse_datetime(value)
         if parsed:
-            return parsed.strftime("%H:%M")
-    return datetime.now().astimezone().strftime("%H:%M")
+            return parsed.astimezone(local_timezone).strftime("%H:%M")
+    return datetime.now(timezone.utc).astimezone(local_timezone).strftime("%H:%M")
 
 
 def _duration_seconds(start, end) -> int:
@@ -2313,7 +2322,8 @@ async def _collect_alerts() -> list[dict]:
                 dose_text = ""
                 if dosage not in (None, ""):
                     dose_text = f" · {dosage} {unit}".rstrip()
-                due_text = next_at.strftime("%H:%M")
+                local_timezone = await _home_assistant_timezone()
+                due_text = next_at.astimezone(local_timezone).strftime("%H:%M")
                 slot_text = f"{slot.get('label')} · " if isinstance(slot, dict) and slot.get("label") else ""
                 if due:
                     title = f"Medicamento pendiente · {child_name}"
@@ -4003,6 +4013,29 @@ async def undo_entry(request: Request):
 async def proxy_baby_buddy(path: str, request: Request):
     target_url = f"/api/{path}"
     params = dict(request.query_params)
+
+    # Los filtros GET de Baby Buddy (start_min/date_min/time_min, etc.) también
+    # reciben a veces horas locales sin offset desde el frontend. Tras normalizar
+    # correctamente los registros a UTC, dejar estos límites como horas ingenuas
+    # provoca que "Hoy" empiece a las 02:00 durante el horario de verano en
+    # Europe/Madrid (01:00 en invierno). Normalizamos aquí los límites temporales
+    # igual que hacemos con los cuerpos POST/PATCH/PUT.
+    if params:
+        local_timezone = await _home_assistant_timezone()
+        normalized_params = {}
+        for key, value in params.items():
+            temporal_filter = (
+                key in {"start", "end", "time", "date"}
+                or key.endswith("_min")
+                or key.endswith("_max")
+            )
+            normalized_params[key] = (
+                _normalize_naive_local_datetime(value, local_timezone)
+                if temporal_filter
+                else value
+            )
+        params = normalized_params
+
     body = None
     request_payload: dict = {}
     content_type = request.headers.get("content-type", "")

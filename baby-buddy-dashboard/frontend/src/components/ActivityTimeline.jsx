@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import SectionCard from "./SectionCard";
+import FeedingDetails from "./FeedingDetails";
 import { Icons } from "./Icons";
 import {
   feedingDurationSeconds,
   feedingLastBreast,
   feedingMethodLabel,
-  feedingSegmentDetails,
   feedingSegments,
   formatTime,
   isAlexaFeeding,
@@ -90,10 +90,6 @@ function buildItems({
     const minutes = Math.round(feedingDurationSeconds(entry) / 60);
     const segments = feedingSegments(entry);
     const paused = isPausedFeeding(entry);
-    const details = feedingSegmentDetails(entry);
-    const segmentText = details.length > 1
-      ? details.map((item, index) => `T${index + 1} ${feedingMethodLabel(item.method).replace("Pecho ", "")}`).join(" · ")
-      : "";
     const lastBreast = feedingLastBreast(entry);
     items.push({
       id: `feeding-${entry.id || when}`,
@@ -103,7 +99,7 @@ function buildItems({
       when,
       time: `${formatTime(when)} – ${entry.end ? formatTime(entry.end) : "en curso"}`,
       title: isAlexaFeeding(entry) ? "Toma · 🎙️ Alexa" : "Toma",
-      detail: `${minutes} min${entry?._session ? " efectivos" : ""}${segments > 1 ? ` · ${segments} tramos` : ""}${paused ? " · Pausada" : ""}${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}${segmentText ? ` · ${segmentText}` : ""}${lastBreast && segments > 1 ? ` · último ${feedingMethodLabel(lastBreast).toLowerCase()}` : ""}`,
+      detail: `${minutes} min${entry?._session ? " efectivos" : ""}${segments > 1 ? ` · ${segments} tramos` : ""}${paused ? " · Pausada" : ""}${feedingMethod(entry) ? ` · ${feedingMethod(entry)}` : ""}${lastBreast && segments > 1 ? ` · último ${feedingMethodLabel(lastBreast).toLowerCase()}` : ""}`,
       entry,
     });
   }
@@ -309,87 +305,95 @@ export default function ActivityTimeline({
 
               <div style={{ display: "grid" }}>
                 {group.items.map((item) => (
-                  <button
-                    type="button"
+                  <div
                     key={item.id}
-                    onClick={() => onEditEntry?.(item.type, item.entry)}
-                    style={{
-                      width: "100%",
-                      display: "grid",
-                      gridTemplateColumns: "28px minmax(0, 1fr) auto",
-                      gap: 10,
-                      alignItems: "center",
-                      border: 0,
-                      borderBottom: "1px solid var(--border)",
-                      background: "transparent",
-                      color: "var(--text)",
-                      padding: "9px 2px",
-                      fontFamily: "inherit",
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                    title="Pulsa para editar"
+                    style={{ borderBottom: "1px solid var(--border)", paddingBottom: item.type === "feeding" && feedingSegments(item.entry) > 1 ? 8 : 0 }}
                   >
-                    <span
+                    <button
+                      type="button"
+                      onClick={() => onEditEntry?.(item.type, item.entry)}
                       style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 9,
+                        width: "100%",
                         display: "grid",
-                        placeItems: "center",
-                        background: `${item.color}14`,
-                        fontSize: 15,
+                        gridTemplateColumns: "28px minmax(0, 1fr) auto",
+                        gap: 10,
+                        alignItems: "center",
+                        border: 0,
+                        background: "transparent",
+                        color: "var(--text)",
+                        padding: "9px 2px",
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                        textAlign: "left",
                       }}
+                      title="Pulsa para editar"
                     >
-                      {item.icon}
-                    </span>
-
-                    <span style={{ minWidth: 0 }}>
-                      <strong
-                        style={{
-                          display: "block",
-                          fontSize: 13,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {item.title}
-                      </strong>
                       <span
                         style={{
-                          display: "block",
-                          marginTop: 2,
+                          width: 28,
+                          height: 28,
+                          borderRadius: 9,
+                          display: "grid",
+                          placeItems: "center",
+                          background: `${item.color}14`,
+                          fontSize: 15,
+                        }}
+                      >
+                        {item.icon}
+                      </span>
+
+                      <span style={{ minWidth: 0 }}>
+                        <strong
+                          style={{
+                            display: "block",
+                            fontSize: 13,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {item.title}
+                        </strong>
+                        <span
+                          style={{
+                            display: "block",
+                            marginTop: 2,
+                            color: "var(--text-muted)",
+                            fontSize: 11,
+                          }}
+                        >
+                          {item.detail}
+                        </span>
+                      </span>
+
+                      <span
+                        style={{
                           color: "var(--text-muted)",
                           fontSize: 11,
+                          whiteSpace: "nowrap",
+                          fontFamily: "var(--mono)",
                         }}
                       >
-                        {item.detail}
+                        <span>{item.time}</span>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            marginLeft: 5,
+                            fontSize: 17,
+                            lineHeight: 1,
+                            opacity: 0.85,
+                          }}
+                        >
+                          ✎
+                        </span>
                       </span>
-                    </span>
-
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        fontSize: 11,
-                        whiteSpace: "nowrap",
-                        fontFamily: "var(--mono)",
-                      }}
-                    >
-                      <span>{item.time}</span>
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          marginLeft: 5,
-                          fontSize: 17,
-                          lineHeight: 1,
-                          opacity: 0.85,
-                        }}
-                      >
-                        ✎
-                      </span>
-                    </span>
-                  </button>
+                    </button>
+                    {item.type === "feeding" && feedingSegments(item.entry) > 1 && (
+                      <div style={{ padding: "0 2px 0 38px" }}>
+                        <FeedingDetails feeding={item.entry} label="Ver detalles" />
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

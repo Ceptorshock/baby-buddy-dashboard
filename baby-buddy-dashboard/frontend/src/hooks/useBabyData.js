@@ -2,11 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api";
 import { getMockData } from "../utils/mockData";
 
-function toLocalISODate(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 function fixChildPicture(c) {
   if (c?.picture) {
     try {
@@ -63,20 +58,27 @@ export function useBabyData() {
     try {
       const now = new Date();
 
-      const todayStr = toLocalISODate(now);
-      const todayMin = `${todayStr}T00:00:00`;
-      const todayMax = `${todayStr}T23:59:59`;
+      // Construimos los límites como instantes reales, no como cadenas locales
+      // sin zona horaria. En Europe/Madrid, el inicio local del 21/08/2026 es
+      // 20/08/2026 22:00Z. Esto evita que la tarjeta "Hoy" pierda todo lo
+      // ocurrido entre las 00:00 y las 01:59 en verano.
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayMin = todayStart.toISOString();
+      const todayMax = now.toISOString();
 
       const twentyFourAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const sleepMin = `${toLocalISODate(twentyFourAgo)}T${String(twentyFourAgo.getHours()).padStart(2, "0")}:${String(twentyFourAgo.getMinutes()).padStart(2, "0")}:00`;
+      const sleepMin = twentyFourAgo.toISOString();
 
       const weekAgo = new Date(now);
       weekAgo.setDate(weekAgo.getDate() - 6);
-      const weekMin = `${toLocalISODate(weekAgo)}T00:00:00`;
+      weekAgo.setHours(0, 0, 0, 0);
+      const weekMin = weekAgo.toISOString();
 
       const monthAgo = new Date(now);
       monthAgo.setDate(monthAgo.getDate() - 29);
-      const monthMin = `${toLocalISODate(monthAgo)}T00:00:00`;
+      monthAgo.setHours(0, 0, 0, 0);
+      const monthMin = monthAgo.toISOString();
 
       const c = childId || undefined;
 

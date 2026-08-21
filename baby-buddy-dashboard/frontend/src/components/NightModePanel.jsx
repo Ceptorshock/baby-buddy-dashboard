@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icons } from "./Icons";
+import FeedingDetails from "./FeedingDetails";
 import { api } from "../api";
 import {
   feedingDurationSeconds,
@@ -390,6 +391,10 @@ export default function NightModePanel({ data, timer, onOpenForm, onCreated, onC
             </small>
           </div>
         </div>
+
+        {latestFeeding && latestSegments > 1 && (
+          <FeedingDetails feeding={latestFeeding} label="Ver detalles de la última toma" />
+        )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
           {latestFeeding && (
