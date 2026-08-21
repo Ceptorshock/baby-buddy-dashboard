@@ -204,6 +204,19 @@ function segmentSeconds(start, end) {
   return Math.max(0, Math.round((b - a) / 1000));
 }
 
+function detailGapSeconds(current, next) {
+  if (!current?.end || !next?.start) return 0;
+  return segmentSeconds(current.end, next.start);
+}
+
+function detailDurationText(seconds) {
+  const minutes = Math.max(0, Math.round((Number(seconds) || 0) / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} h${rest ? ` ${rest} min` : ""}`;
+}
+
 const quickButtonStyle = {
   flex: "1 1 68px",
   minWidth: 64,
@@ -259,6 +272,7 @@ export default function FeedingForm({
       : 0,
   );
   const [segmentDetails, setSegmentDetails] = useState(() => feedingSegmentDetails(entry));
+  const [segmentsEdited, setSegmentsEdited] = useState(false);
   const [lastBreast, setLastBreast] = useState(() => feedingLastBreast(entry) || "");
 
   const [saving, setSaving] = useState(false);
@@ -352,6 +366,40 @@ export default function FeedingForm({
     () => Math.round(segmentSeconds(start, end) / 60),
     [start, end],
   );
+
+  const segmentRestSeconds = useMemo(
+    () => segmentDetails.reduce((total, item, index) => {
+      if (index >= segmentDetails.length - 1) return total;
+      return total + detailGapSeconds(item, segmentDetails[index + 1]);
+    }, 0),
+    [segmentDetails],
+  );
+
+  const applySegmentChange = (index, patch, recalcFromTimes = false) => {
+    const next = segmentDetails.map((item, detailIndex) =>
+      detailIndex === index ? { ...item, ...patch } : item,
+    );
+    const current = next[index];
+    if (recalcFromTimes && current?.start && current?.end) {
+      const startDate = new Date(current.start);
+      const endDate = new Date(current.end);
+      if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()) && endDate >= startDate) {
+        current.active_seconds = segmentSeconds(current.start, current.end);
+      }
+    }
+
+    setSegmentDetails(next);
+    setSegmentsEdited(true);
+    setEffectiveMinutes(Math.round(next.reduce((total, item) => total + Math.max(0, Number(item.active_seconds) || 0), 0) / 60));
+    setLastBreast(lastDirectBreast(next, method) || "");
+
+    const starts = next.map((item) => new Date(item.start).getTime()).filter(Number.isFinite);
+    const ends = next.map((item) => new Date(item.end).getTime()).filter(Number.isFinite);
+    if (starts.length === next.length && ends.length === next.length && next.length) {
+      setStart(toLocalDatetime(new Date(Math.min(...starts))));
+      setEnd(toLocalDatetime(new Date(Math.max(...ends))));
+    }
+  };
 
   const setRetrospectiveStart = (minutes) => {
     const parsed = Math.max(1, Math.round(Number(minutes) || 0));
@@ -675,6 +723,22 @@ export default function FeedingForm({
       return;
     }
 
+    if (isEdit && segmentDetails.length) {
+      for (let index = 0; index < segmentDetails.length; index += 1) {
+        const detail = segmentDetails[index];
+        const detailStart = new Date(detail.start);
+        const detailEnd = new Date(detail.end);
+        if (Number.isNaN(detailStart.getTime()) || Number.isNaN(detailEnd.getTime()) || detailEnd < detailStart) {
+          setError(`Revisa las horas del tramo ${index + 1}: el fin debe ser posterior al inicio.`);
+          return;
+        }
+        if (detailStart.getTime() > currentTime || detailEnd.getTime() > currentTime) {
+          setError(`El tramo ${index + 1} no puede estar en el futuro.`);
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       if (continuationBase && timerId) {
@@ -743,6 +807,7 @@ export default function FeedingForm({
   };
 
   const session = feedingSession(entry);
+  const segmentedEdit = Boolean(isEdit && session && session.segments > 1 && segmentDetails.length);
   const title = continuationBase
     ? "Continuar toma"
     : isEdit
@@ -832,8 +897,8 @@ export default function FeedingForm({
         {(!timerId || timerResolved || isEdit) && (
           <>
             <FormField label={continuationBase ? "Inicio de este tramo" : "Inicio"}>
-              <FormInput type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
-              {(isEdit || timerId) && (
+              <FormInput type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required disabled={segmentedEdit} />
+              {(isEdit || timerId) && !segmentedEdit && (
                 <QuickRow>
                   {[-10, -5, 5, 10].map((delta) => (
                     <button key={delta} type="button" style={quickButtonStyle} onClick={() => setStart(shiftMinutes(start, delta))}>
@@ -845,8 +910,8 @@ export default function FeedingForm({
             </FormField>
 
             <FormField label="Fin">
-              <FormInput type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
-              {(isEdit || timerId) && (
+              <FormInput type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required disabled={segmentedEdit} />
+              {(isEdit || timerId) && !segmentedEdit && (
                 <QuickRow>
                   {[-10, -5, 5, 10].map((delta) => (
                     <button key={delta} type="button" style={quickButtonStyle} onClick={() => setEnd(shiftMinutes(end, delta))}>
@@ -859,6 +924,12 @@ export default function FeedingForm({
                 </QuickRow>
               )}
             </FormField>
+
+            {segmentedEdit && (
+              <div style={{ marginTop: -5, marginBottom: 12, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.4 }}>
+                En una toma con varios tramos, el inicio y fin generales se calculan desde el primer y último tramo. Corrígelos en “Detalle por tramos”.
+              </div>
+            )}
 
             {!isEdit && !timerId && (
               <div style={{ marginBottom: 14, padding: 10, border: "1px solid var(--border)", borderRadius: 11, background: "var(--bg)" }}>
@@ -881,7 +952,7 @@ export default function FeedingForm({
           </>
         )}
 
-        {isEdit && session && (
+        {isEdit && session && !segmentedEdit && (
           <div style={{ marginBottom: 14, padding: 11, borderRadius: 11, border: `1px solid ${colors.feeding}45`, background: `${colors.feeding}08` }}>
             <strong style={{ color: "var(--text)", fontSize: 12 }}>Tiempo efectivo de toma</strong>
             <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 11 }}>
@@ -915,48 +986,113 @@ export default function FeedingForm({
 
         {isEdit && session && session.segments > 1 && (
           <div style={{ marginBottom: 14, padding: 11, borderRadius: 11, border: "1px solid var(--border)", background: "var(--bg)" }}>
-            <strong style={{ color: "var(--text)", fontSize: 12 }}>Pechos por tramo</strong>
+            <strong style={{ color: "var(--text)", fontSize: 12 }}>Detalle por tramos</strong>
+            <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.4 }}>
+              Puedes corregir inicio, fin, tiempo efectivo y pecho de cada tramo. Los descansos se calculan automáticamente entre el fin de un tramo y el inicio del siguiente.
+            </div>
+
             {segmentDetails.length ? (
-              <div style={{ display: "grid", gap: 8, marginTop: 9 }}>
+              <div style={{ display: "grid", gap: 9, marginTop: 10 }}>
                 {segmentDetails.length < session.segments && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
-                    Esta toma conserva el pecho de {segmentDetails.length} de {session.segments} tramos. Los tramos creados antes de ES18.28 no se pueden reconstruir automáticamente.
+                    Esta toma conserva el detalle de {segmentDetails.length} de {session.segments} tramos. Los tramos creados antes de ES18.28 no se pueden reconstruir automáticamente.
                   </div>
                 )}
-                {segmentDetails.map((item, index) => (
-                  <div key={`${item.start || "segment"}-${index}`} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 9 }}>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
-                      <strong style={{ color: "var(--text)" }}>Tramo {index + 1}</strong> · {clock(item.start)}–{clock(item.end)} · {Math.round((Number(item.active_seconds) || 0) / 60)} min
+                {segmentDetails.map((item, index) => {
+                  const nextItem = segmentDetails[index + 1];
+                  const restSeconds = nextItem ? detailGapSeconds(item, nextItem) : 0;
+                  return (
+                    <div key={`${item.start || "segment"}-${index}`}>
+                      <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 9, background: "var(--card-bg)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                          <strong style={{ color: "var(--text)", fontSize: 12 }}>Tramo {index + 1}</strong>
+                          <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 800 }}>
+                            {detailDurationText(item.active_seconds)} efectivos
+                          </span>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                          <FormField label="Inicio">
+                            <FormInput
+                              type="datetime-local"
+                              value={item.start ? toLocalDatetime(new Date(item.start)) : ""}
+                              onChange={(event) => applySegmentChange(index, { start: toApiDatetime(event.target.value) }, true)}
+                              required
+                            />
+                          </FormField>
+                          <FormField label="Fin">
+                            <FormInput
+                              type="datetime-local"
+                              value={item.end ? toLocalDatetime(new Date(item.end)) : ""}
+                              onChange={(event) => applySegmentChange(index, { end: toApiDatetime(event.target.value) }, true)}
+                              required
+                            />
+                          </FormField>
+                        </div>
+
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+                          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>Tiempo efectivo</span>
+                          <FormInput
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={Math.round((Number(item.active_seconds) || 0) / 60)}
+                            onChange={(event) => applySegmentChange(index, { active_seconds: Math.max(0, Math.round(Number(event.target.value || 0) * 60)) })}
+                            style={{ width: 82 }}
+                          />
+                          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>min</span>
+                        </div>
+
+                        <div style={{ marginTop: 7, color: "var(--text-muted)", fontSize: 11 }}>Pecho / método</div>
+                        <QuickRow>
+                          {BREAST_METHODS.map((choice) => (
+                            <button
+                              key={choice.value}
+                              type="button"
+                              onClick={() => applySegmentChange(index, { method: choice.value })}
+                              style={{
+                                ...quickButtonStyle,
+                                padding: "6px 8px",
+                                border: String(item.method || "").toLowerCase() === choice.value ? `1px solid ${colors.feeding}` : "1px solid var(--border)",
+                                color: String(item.method || "").toLowerCase() === choice.value ? colors.feeding : "var(--text)",
+                              }}
+                            >
+                              {choice.label}
+                            </button>
+                          ))}
+                        </QuickRow>
+                      </div>
+
+                      {nextItem && (
+                        <div style={{ margin: "5px 0 0 12px", paddingLeft: 9, borderLeft: "2px dashed var(--border)", color: "var(--text-dim)", fontSize: 10, fontWeight: 800 }}>
+                          ⏸ Descanso hasta tramo {index + 2}: {restSeconds > 0 ? detailDurationText(restSeconds) : "sin descanso"}
+                        </div>
+                      )}
                     </div>
-                    <QuickRow>
-                      {BREAST_METHODS.map((choice) => (
-                        <button
-                          key={choice.value}
-                          type="button"
-                          onClick={() => {
-                            const next = segmentDetails.map((current, detailIndex) => detailIndex === index ? { ...current, method: choice.value } : current);
-                            setSegmentDetails(next);
-                            setLastBreast(lastDirectBreast(next, method) || "");
-                          }}
-                          style={{
-                            ...quickButtonStyle,
-                            padding: "6px 8px",
-                            border: String(item.method || "").toLowerCase() === choice.value ? `1px solid ${colors.feeding}` : "1px solid var(--border)",
-                            color: String(item.method || "").toLowerCase() === choice.value ? colors.feeding : "var(--text)",
-                          }}
-                        >
-                          {choice.label}
-                        </button>
-                      ))}
-                    </QuickRow>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div style={{ marginTop: 7, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>
-                Esta toma fue fusionada con una versión anterior del panel y no conserva el pecho de cada tramo. Puedes indicar al menos cuál fue el último pecho usado.
+                Esta toma fue fusionada con una versión anterior del panel y no conserva las horas de cada tramo. Puedes indicar al menos cuál fue el último pecho usado.
               </div>
             )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(115px, 1fr))", gap: 7, marginTop: 10 }}>
+              <div style={{ padding: 8, borderRadius: 9, border: "1px solid var(--border)", background: "var(--card-bg)" }}>
+                <span style={{ display: "block", color: "var(--text-dim)", fontSize: 9, fontWeight: 800 }}>INTERVALO TOTAL</span>
+                <strong style={{ display: "block", marginTop: 3, fontSize: 12 }}>{wallMinutes} min</strong>
+              </div>
+              <div style={{ padding: 8, borderRadius: 9, border: "1px solid var(--border)", background: "var(--card-bg)" }}>
+                <span style={{ display: "block", color: "var(--text-dim)", fontSize: 9, fontWeight: 800 }}>TIEMPO EFECTIVO</span>
+                <strong style={{ display: "block", marginTop: 3, fontSize: 12 }}>{Math.max(0, Math.round(Number(effectiveMinutes) || 0))} min</strong>
+              </div>
+              <div style={{ padding: 8, borderRadius: 9, border: "1px solid var(--border)", background: "var(--card-bg)" }}>
+                <span style={{ display: "block", color: "var(--text-dim)", fontSize: 9, fontWeight: 800 }}>DESCANSOS</span>
+                <strong style={{ display: "block", marginTop: 3, fontSize: 12 }}>{detailDurationText(segmentRestSeconds)}</strong>
+              </div>
+            </div>
+
             <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>Último pecho usado</div>
             <QuickRow>
               {[
@@ -977,6 +1113,11 @@ export default function FeedingForm({
                 </button>
               ))}
             </QuickRow>
+            {segmentsEdited && (
+              <div style={{ marginTop: 8, color: "var(--text-dim)", fontSize: 10 }}>
+                Inicio/fin generales y tiempo efectivo se han recalculado con los cambios de los tramos.
+              </div>
+            )}
           </div>
         )}
 
